@@ -52,7 +52,11 @@ app.use((err, req, res, next) => {
   res.status(500).json({ status: 'error', message: 'Error interno del servidor' })
 })
 
-app.listen(PORT, () => {
-  console.log(`Marketplace API corriendo en http://localhost:${PORT}`)
-  console.log(`CORS habilitado para: http://localhost:3000, http://localhost:5173`)
-})
+export default app
+
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`Marketplace API corriendo en http://localhost:${PORT}`)
+    console.log(`CORS habilitado para: http://localhost:3000, http://localhost:5173`)
+  })
+}
