@@ -7,7 +7,7 @@ import cartRoutes from './routes/cart.js'
 import orderRoutes from './routes/orders.js'
 import adminRoutes from './routes/admin.js'
 import reviewRoutes from './routes/reviews.js'
-import testRoutes from './routes/wishlist.js'
+import testRoutes from './routes/notifications.js'
 
 const app = express()
 const corsOrigins = process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',').map(s=>s.trim()) : ['http://localhost:3000','http://localhost:5173','http://127.0.0.1:3000']
