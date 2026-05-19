@@ -22,8 +22,12 @@ import { getUserById, sendMessage, getConversationMessages, createNotification }
 const app = express()
 const PORT = process.env.PORT || 8080
 
+const corsOrigins = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(',').map((s) => s.trim())
+  : ['http://localhost:3000', 'http://localhost:5173', 'http://127.0.0.1:3000']
+
 app.use(cors({
-  origin: ['http://localhost:3000', 'http://localhost:5173', 'http://127.0.0.1:3000'],
+  origin: corsOrigins,
   credentials: true,
   methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
@@ -66,7 +70,7 @@ app.use((err, req, res, next) => {
 const server = http.createServer(app)
 const io = new Server(server, {
   cors: {
-    origin: ['http://localhost:3000', 'http://localhost:5173', 'http://127.0.0.1:3000'],
+    origin: corsOrigins,
     methods: ['GET', 'POST'],
   },
 })
@@ -129,7 +133,7 @@ export default app
 if (!process.env.VERCEL) {
   server.listen(PORT, () => {
     console.log(`Marketplace API corriendo en http://localhost:${PORT}`)
-    console.log(`CORS habilitado para: http://localhost:3000, http://localhost:5173`)
+    console.log(`CORS habilitado para: ${corsOrigins.join(', ')}`)
     console.log('Socket.io listo para conexiones en tiempo real')
   })
 }
