@@ -67,73 +67,76 @@ app.use((err, req, res, next) => {
   res.status(500).json({ status: 'error', message: 'Error interno del servidor' })
 })
 
-const server = http.createServer(app)
-const io = new Server(server, {
-  cors: {
-    origin: corsOrigins,
-    methods: ['GET', 'POST'],
-  },
-})
+let io = null
 
-app.set('io', io)
-
-io.on('connection', (socket) => {
+if (!process.env.VERCEL) {
   try {
-    const userId = socket.handshake.query.userId
-    if (userId) {
-      socket.join(userId)
-      console.log(`Socket conectado: usuario ${userId}`)
-    }
+    const server = http.createServer(app)
+    io = new Server(server, {
+      cors: { origin: corsOrigins, methods: ['GET', 'POST'] },
+    })
 
-    socket.on('sendMessage', (data, ack) => {
+    app.set('io', io)
+
+    io.on('connection', (socket) => {
       try {
-        const { receiver_id, product_id, content } = data
-        if (!receiver_id || !content || !userId) {
-          if (ack) ack({ status: 'error', message: 'receiver_id y content son requeridos' })
-          return
+        const userId = socket.handshake.query.userId
+        if (userId) {
+          socket.join(userId)
+          console.log(`Socket conectado: usuario ${userId}`)
         }
 
-        const user = getUserById(userId)
-        const fromName = user?.profile?.full_name || user?.email || 'Anónimo'
+        socket.on('sendMessage', (data, ack) => {
+          try {
+            const { receiver_id, product_id, content } = data
+            if (!receiver_id || !content || !userId) {
+              if (ack) ack({ status: 'error', message: 'receiver_id y content son requeridos' })
+              return
+            }
 
-        const msg = sendMessage(userId, fromName, receiver_id, product_id || null, content)
+            const user = getUserById(userId)
+            const fromName = user?.profile?.full_name || user?.email || 'Anónimo'
 
-        io.to(receiver_id).emit('new_message', {
-          conversation_id: msg.conversation_id,
-          sender_id: msg.sender_id,
-          sender_name: msg.sender_name,
-          text: msg.text,
-          timestamp: msg.created_at,
+            const msg = sendMessage(userId, fromName, receiver_id, product_id || null, content)
+
+            io.to(receiver_id).emit('new_message', {
+              conversation_id: msg.conversation_id,
+              sender_id: msg.sender_id,
+              sender_name: msg.sender_name,
+              text: msg.text,
+              timestamp: msg.created_at,
+            })
+
+            createNotification(receiver_id, 'message', 'Nuevo mensaje', `${fromName} te ha enviado un mensaje`, '/messages')
+
+            const chatMessages = getConversationMessages(msg.conversation_id)
+            if (ack) ack({ status: 'success', data: { conversation_id: msg.conversation_id, messages: chatMessages } })
+          } catch (err) {
+            console.error(`Error en sendMessage socket (usuario ${userId}):`, err.message)
+            if (ack) ack({ status: 'error', message: 'Error interno al enviar mensaje' })
+          }
         })
 
-        createNotification(receiver_id, 'message', 'Nuevo mensaje', `${fromName} te ha enviado un mensaje`, '/messages')
+        socket.on('disconnect', () => {
+          console.log(`Socket desconectado: ${userId || 'desconocido'}`)
+        })
 
-        const chatMessages = getConversationMessages(msg.conversation_id)
-        if (ack) ack({ status: 'success', data: { conversation_id: msg.conversation_id, messages: chatMessages } })
+        socket.on('error', (err) => {
+          console.error(`Socket error (usuario ${userId}):`, err.message)
+        })
       } catch (err) {
-        console.error(`Error en sendMessage socket (usuario ${userId}):`, err.message)
-        if (ack) ack({ status: 'error', message: 'Error interno al enviar mensaje' })
+        console.error('Error en conexión socket:', err)
       }
     })
 
-    socket.on('disconnect', () => {
-      console.log(`Socket desconectado: ${userId || 'desconocido'}`)
-    })
-
-    socket.on('error', (err) => {
-      console.error(`Socket error (usuario ${userId}):`, err.message)
+    server.listen(PORT, () => {
+      console.log(`Marketplace API corriendo en http://localhost:${PORT}`)
+      console.log(`CORS habilitado para: ${corsOrigins.join(', ')}`)
+      console.log('Socket.io listo para conexiones en tiempo real')
     })
   } catch (err) {
-    console.error('Error en conexión socket:', err)
+    console.error('Error al iniciar servidor con Socket.io:', err.message)
   }
-})
+}
 
 export default app
-
-if (!process.env.VERCEL) {
-  server.listen(PORT, () => {
-    console.log(`Marketplace API corriendo en http://localhost:${PORT}`)
-    console.log(`CORS habilitado para: ${corsOrigins.join(', ')}`)
-    console.log('Socket.io listo para conexiones en tiempo real')
-  })
-}
