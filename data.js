@@ -4,7 +4,7 @@ import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const DB_PATH = join(__dirname, 'db.json')
+const DB_PATH = process.env.VERCEL ? '/tmp/db.json' : join(__dirname, 'db.json')
 
 const SELLER_PROFILES = {
   'camilomonva@unisabana.edu.co': { career: 'Ingeniería de Sistemas', faculty: 'Facultad de Ingeniería' },
@@ -70,7 +70,9 @@ function readDb() {
 }
 
 function writeDb(db) {
-  writeFileSync(DB_PATH, JSON.stringify(db, null, 2))
+  try {
+    writeFileSync(DB_PATH, JSON.stringify(db, null, 2))
+  } catch {}
 }
 
 export function getUsers() {
