@@ -7,9 +7,11 @@ import { fileURLToPath } from 'url'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const UPLOADS_DIR = join(__dirname, '..', 'uploads')
 
-if (!existsSync(UPLOADS_DIR)) {
-  mkdirSync(UPLOADS_DIR, { recursive: true })
-}
+try {
+  if (!existsSync(UPLOADS_DIR)) {
+    mkdirSync(UPLOADS_DIR, { recursive: true })
+  }
+} catch {}
 
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024
 
