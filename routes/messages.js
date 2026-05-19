@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { getUserById, sendMessage, getUserMessages, markMessageRead, getUnreadCount, getProductById, createNotification } from '../data.js'
+import { getUserById, sendMessage, getUserConversations, getConversationMessages, getUserMessages, markMessageRead, getUnreadCount, createNotification } from '../data.js'
 
 const router = Router()
 
@@ -18,17 +18,51 @@ function authenticate(req, res, next) {
 }
 
 router.post('/messages', authenticate, (req, res) => {
-  const { seller_id, product_id, message } = req.body
-  if (!seller_id || !message) {
-    return res.status(400).json({ status: 'error', message: 'seller_id y message son requeridos' })
+  const receiverId = req.body.receiver_id || req.body.seller_id
+  const messageContent = req.body.content || req.body.message
+  const { product_id } = req.body
+
+  if (!receiverId || !messageContent) {
+    return res.status(400).json({ status: 'error', message: 'receiver_id y content son requeridos' })
   }
 
   const user = getUserById(req.userId)
   const fromName = user?.profile?.full_name || user?.email || 'Anónimo'
 
-  const msg = sendMessage(req.userId, fromName, seller_id, product_id || null, message)
-  createNotification(seller_id, 'message', 'Nuevo mensaje', `${fromName} te ha enviado un mensaje sobre un producto`, '/messages')
-  res.status(201).json({ status: 'success', message: 'Mensaje enviado exitosamente', data: msg })
+  const msg = sendMessage(req.userId, fromName, receiverId, product_id || null, messageContent)
+
+  const io = req.app.get('io')
+  if (io) {
+    io.to(receiverId).emit('new_message', {
+      conversation_id: msg.conversation_id,
+      sender_id: msg.sender_id,
+      sender_name: msg.sender_name,
+      text: msg.text,
+      timestamp: msg.created_at,
+    })
+  }
+
+  createNotification(receiverId, 'message', 'Nuevo mensaje', `${fromName} te ha enviado un mensaje`, '/messages')
+
+  const chatMessages = getConversationMessages(msg.conversation_id)
+  res.status(201).json({
+    status: 'success',
+    message: 'Mensaje enviado exitosamente',
+    data: {
+      conversation_id: msg.conversation_id,
+      messages: chatMessages,
+    },
+  })
+})
+
+router.get('/conversations', authenticate, (req, res) => {
+  const conversations = getUserConversations(req.userId)
+  res.json({ status: 'success', data: conversations })
+})
+
+router.get('/conversations/:id/messages', authenticate, (req, res) => {
+  const messages = getConversationMessages(req.params.id)
+  res.json({ status: 'success', data: { conversation_id: req.params.id, messages } })
 })
 
 router.get('/messages', authenticate, (req, res) => {

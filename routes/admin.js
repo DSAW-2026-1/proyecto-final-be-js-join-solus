@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { getUsers, getProducts, getAllOrders, updateProductStatus, updateUserRole } from '../data.js'
+import { getUsers, getProducts, getAllOrders, updateProductStatus, updateUserRole, getPendingReports, getAllReports, moderateProduct, createReport } from '../data.js'
 
 const router = Router()
 
@@ -77,6 +77,65 @@ router.patch('/admin/products/:id/status', adminAuth, (req, res) => {
 router.get('/admin/orders', adminAuth, (req, res) => {
   const orders = getAllOrders()
   res.json({ status: 'success', data: orders })
+})
+
+router.post('/reports', (req, res) => {
+  const auth = req.headers.authorization
+  if (!auth || !auth.startsWith('Bearer ')) {
+    return res.status(401).json({ status: 'error', message: 'Token requerido' })
+  }
+  let userId
+  try {
+    const payload = JSON.parse(atob(auth.split('.')[1]))
+    userId = payload.sub
+  } catch {
+    return res.status(401).json({ status: 'error', message: 'Token inválido' })
+  }
+
+  const { product_id, reason } = req.body
+  if (!product_id || !reason) {
+    return res.status(400).json({ status: 'error', message: 'product_id y reason son requeridos' })
+  }
+
+  const report = createReport(userId, product_id, reason)
+  if (!report) {
+    return res.status(404).json({ status: 'error', message: 'Producto no encontrado' })
+  }
+
+  res.status(201).json({ status: 'success', message: 'Reporte enviado. El equipo de administración lo revisará.', data: { report_id: report.id } })
+})
+
+router.get('/admin/reports', adminAuth, (req, res) => {
+  const pending = getPendingReports()
+  const mapped = pending.map((r) => ({
+    report_id: r.id,
+    reason: r.reason,
+    reported_by: r.reported_by,
+    product: {
+      id: r.product_id,
+      title: r.product_title,
+      seller_name: r.seller_name,
+    },
+    created_at: r.created_at,
+  }))
+  res.json({ status: 'success', data: { pending_reports: mapped } })
+})
+
+router.post('/admin/moderate-product', adminAuth, (req, res) => {
+  const { product_id, action, reason } = req.body
+  if (!product_id || !action || !reason) {
+    return res.status(400).json({ status: 'error', message: 'product_id, action y reason son requeridos' })
+  }
+  if (!['SUSPEND', 'ACTIVATE'].includes(action)) {
+    return res.status(400).json({ status: 'error', message: 'Acción inválida. Use SUSPEND o ACTIVATE' })
+  }
+
+  const result = moderateProduct(product_id, action, reason)
+  if (!result) {
+    return res.status(404).json({ status: 'error', message: 'Producto no encontrado' })
+  }
+
+  res.json({ status: 'success', message: `Producto ${action === 'SUSPEND' ? 'suspendido' : 'activado'} exitosamente`, data: result })
 })
 
 export default router

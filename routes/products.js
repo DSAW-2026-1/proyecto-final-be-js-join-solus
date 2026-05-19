@@ -1,6 +1,29 @@
 import crypto from 'crypto'
 import { Router } from 'express'
+import multer from 'multer'
+import { join, dirname } from 'path'
+import { fileURLToPath } from 'url'
 import { addProduct, updateProduct, deleteProduct, getProductsByOwner, getUserById, getProductById, searchProducts, getProductDetail } from '../data.js'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const UPLOADS_DIR = join(__dirname, '..', 'uploads')
+
+const storage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, UPLOADS_DIR),
+  filename: (_req, file, cb) => {
+    const ext = file.originalname.split('.').pop()
+    cb(null, `${crypto.randomUUID()}.${ext}`)
+  },
+})
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) cb(null, true)
+    else cb(new Error('Solo imágenes son permitidas'), false)
+  },
+})
 
 const router = Router()
 
@@ -18,17 +41,24 @@ function authenticate(req, res, next) {
   }
 }
 
-router.post('/products', authenticate, (req, res) => {
+router.post('/products', authenticate, upload.array('images', 6), (req, res) => {
   const user = getUserById(req.userId)
   if (!user) return res.status(404).json({ status: 'error', message: 'Usuario no encontrado' })
   if (!user.is_seller) {
     return res.status(403).json({ status: 'error', message: 'Debes activar tu cuenta de vendedor para publicar productos' })
   }
 
-  const { title, description, price, category, condition, stock, images } = req.body
+  const { title, description, price, category, condition, stock } = req.body
   if (!title || !description || !price || !category || !condition) {
     return res.status(400).json({ status: 'error', message: 'Todos los campos obligatorios deben estar diligenciados: título, descripción, precio, categoría, estado' })
   }
+
+  let images = []
+  if (req.body.existing_images) {
+    try { images = JSON.parse(req.body.existing_images) } catch { images = [] }
+  }
+  const newImages = (req.files || []).map((f) => `/uploads/${f.filename}`)
+  images = [...images, ...newImages]
 
   const product = {
     id: crypto.randomUUID(),
@@ -38,7 +68,7 @@ router.post('/products', authenticate, (req, res) => {
     category,
     condition,
     stock: Math.max(1, Number(stock) || 1),
-    images: images || [],
+    images,
     status: 'ACTIVO',
     created_at: new Date().toISOString(),
     owner: { id: user.id, name: user.profile?.full_name || user.email, email: user.email },
@@ -58,6 +88,7 @@ router.post('/products', authenticate, (req, res) => {
       product_id: product.id,
       created_at: product.created_at,
       status: product.status,
+      images: product.images,
       owner: product.owner,
     },
   })
@@ -74,6 +105,14 @@ router.get('/products/my', authenticate, (req, res) => {
 })
 
 router.patch('/products/:id', authenticate, (req, res) => {
+  const isMultipart = (req.headers['content-type'] || '').includes('multipart/form-data')
+  if (isMultipart) {
+    return upload.array('images', 6)(req, res, () => handlePatch(req, res))
+  }
+  handlePatch(req, res)
+})
+
+function handlePatch(req, res) {
   const user = getUserById(req.userId)
   if (!user) return res.status(404).json({ status: 'error', message: 'Usuario no encontrado' })
 
@@ -83,7 +122,18 @@ router.patch('/products/:id', authenticate, (req, res) => {
     return res.status(403).json({ status: 'error', message: 'No tienes permiso para editar este producto' })
   }
 
-  const { title, description, price, category, condition, stock, images, status } = req.body
+  const { title, description, price, category, condition, stock, images, existing_images, status } = req.body
+  let allImages = images !== undefined ? images : undefined
+
+  if (existing_images) {
+    try { allImages = JSON.parse(existing_images) } catch { allImages = [] }
+  }
+
+  const newImages = (req.files || []).map((f) => `/uploads/${f.filename}`)
+  if (newImages.length > 0) {
+    allImages = [...(allImages || []), ...newImages]
+  }
+
   const updates = {}
   if (title !== undefined) updates.title = title
   if (description !== undefined) updates.description = description
@@ -91,12 +141,12 @@ router.patch('/products/:id', authenticate, (req, res) => {
   if (category !== undefined) updates.category = category
   if (condition !== undefined) updates.condition = condition
   if (stock !== undefined) updates.stock = Number(stock)
-  if (images !== undefined) updates.images = images
+  if (allImages !== undefined) updates.images = allImages
   if (status !== undefined) updates.status = status
 
   const updated = updateProduct(req.params.id, updates)
   res.json({ status: 'success', message: 'Producto actualizado exitosamente', data: updated })
-})
+}
 
 router.delete('/products/:id', authenticate, (req, res) => {
   const user = getUserById(req.userId)

@@ -172,6 +172,25 @@ export function getCart(userId) {
   return db.carts[userId] || { items: [] }
 }
 
+export function formatCartResponse(userId, cart) {
+  const items = cart.items.map((item) => ({
+    product_id: item.product_id,
+    title: item.title,
+    price: item.price,
+    quantity: item.quantity,
+    subtotal: item.price * item.quantity,
+    category: item.category,
+    image: item.image,
+    seller_name: item.seller_name,
+  }))
+  const total_price = items.reduce((sum, item) => sum + item.subtotal, 0)
+  return {
+    cart_id: userId,
+    items,
+    total_price,
+  }
+}
+
 export function addToCart(userId, productId, quantity = 1) {
   const db = readDb()
   if (!db.carts) db.carts = {}
@@ -276,6 +295,66 @@ export function createOrder(userId, items, total) {
   return order
 }
 
+let _orderCounter = 0
+
+export function checkoutOrder(userId, items, total, paymentMethod, bankName, shippingAddress) {
+  const db = readDb()
+  if (!db.orders) db.orders = []
+  if (!db._meta) db._meta = {}
+  db._meta.orderCounter = (db._meta.orderCounter || 0) + 1
+
+  const user = getUserById(userId)
+  const year = new Date().getFullYear()
+  const seq = String(db._meta.orderCounter).padStart(4, '0')
+  const orderId = `ORD-${year}-${seq}`
+  const transactionId = `TXN-${String(Math.floor(Math.random() * 900000) + 100000)}`
+
+  const order = {
+    id: orderId,
+    transaction_id: transactionId,
+    buyer_id: userId,
+    buyer_email: user?.email || 'unknown',
+    buyer_name: user?.profile?.full_name || user?.email || 'unknown',
+    items: items.map((i) => ({
+      product_id: i.product_id,
+      title: i.title,
+      price: i.price,
+      quantity: i.quantity,
+      seller_name: i.seller_name,
+    })),
+    total,
+    payment_method: paymentMethod,
+    bank_name: bankName,
+    shipping_address: shippingAddress,
+    status: 'PAID',
+    created_at: new Date().toISOString(),
+  }
+
+  db.orders.unshift(order)
+  writeDb(db)
+  return order
+}
+
+export function getSellerOrders(userId) {
+  const db = readDb()
+  if (!db.orders) db.orders = []
+  return db.orders.filter((o) =>
+    o.items.some((item) => {
+      const product = getProductById(item.product_id)
+      return product?.owner?.id === userId
+    })
+  )
+}
+
+export function updateOrderStatus(orderId, status) {
+  const db = readDb()
+  const order = db.orders.find((o) => o.id === orderId)
+  if (!order) return null
+  order.status = status
+  writeDb(db)
+  return order
+}
+
 export function updateProductStatus(productId, status) {
   const db = readDb()
   const product = db.products.find((p) => p.id === productId)
@@ -285,7 +364,7 @@ export function updateProductStatus(productId, status) {
   return product
 }
 
-export function createReview(userId, userName, productId, rating, comment) {
+export function createReview(userId, userName, productId, orderId, rating, comment) {
   const db = readDb()
   if (!db.reviews) db.reviews = []
 
@@ -297,6 +376,7 @@ export function createReview(userId, userName, productId, rating, comment) {
     user_id: userId,
     user_name: userName,
     product_id: productId,
+    order_id: orderId || null,
     seller_id: product.owner.id,
     rating: Math.min(5, Math.max(1, Math.round(rating))),
     comment: comment || '',
@@ -318,7 +398,12 @@ export function createReview(userId, userName, productId, rating, comment) {
   }
 
   writeDb(db)
-  return review
+  return {
+    review_id: review.id,
+    new_seller_average: +avgScore.toFixed(1),
+    total_reviews: sellerReviews.length,
+    status: sellerReviews.length >= 5 ? 'VERIFICADO' : sellerReviews.length >= 1 ? 'NUEVO_VENDEDOR' : 'NUEVO_VENDEDOR',
+  }
 }
 
 export function getProductReviews(productId) {
@@ -331,22 +416,40 @@ export function getSellerReviews(sellerId) {
   return (db.reviews || []).filter((r) => r.seller_id === sellerId)
 }
 
+function conversationId(userA, userB, productId) {
+  const sorted = [userA, userB].sort()
+  return `conv-${sorted[0].slice(0, 8)}-${sorted[1].slice(0, 8)}-${(productId || 'general').slice(0, 8)}`
+}
+
 export function sendMessage(fromUserId, fromName, toUserId, productId, message) {
   const db = readDb()
   if (!db.messages) db.messages = []
 
   const product = productId ? db.products.find((p) => p.id === productId) : null
+  const convId = conversationId(fromUserId, toUserId, productId)
 
   const msg = {
     id: crypto.randomUUID(),
-    from_user_id: fromUserId,
-    from_name: fromName,
-    to_user_id: toUserId,
+    conversation_id: convId,
+    sender_id: fromUserId,
+    sender_name: fromName,
+    receiver_id: toUserId,
     product_id: productId,
     product_title: product?.title || null,
-    message,
+    text: message,
     read: false,
     created_at: new Date().toISOString(),
+  }
+
+  if (!db.conversations) db.conversations = {}
+  db.conversations[convId] = {
+    id: convId,
+    participants: [fromUserId, toUserId],
+    product_id: productId,
+    product_title: product?.title || null,
+    last_message: message,
+    last_sender: fromName,
+    last_message_at: msg.created_at,
   }
 
   db.messages.push(msg)
@@ -354,10 +457,46 @@ export function sendMessage(fromUserId, fromName, toUserId, productId, message) 
   return msg
 }
 
+export function getUserConversations(userId) {
+  const db = readDb()
+  const convs = db.conversations || {}
+  return Object.values(convs)
+    .filter((c) => c.participants.includes(userId))
+    .sort((a, b) => new Date(b.last_message_at) - new Date(a.last_message_at))
+    .map((c) => {
+      const otherId = c.participants.find((p) => p !== userId)
+      const otherUser = getUserById(otherId)
+      return {
+        conversation_id: c.id,
+        product_title: c.product_title,
+        last_message: c.last_message,
+        last_sender: c.last_sender,
+        last_message_at: c.last_message_at,
+        other_user: {
+          id: otherId,
+          name: otherUser?.profile?.full_name || otherUser?.email || 'Usuario',
+        },
+      }
+    })
+}
+
+export function getConversationMessages(convId) {
+  const db = readDb()
+  return (db.messages || [])
+    .filter((m) => m.conversation_id === convId)
+    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+    .map((m) => ({
+      id: m.id,
+      sender_id: m.sender_id,
+      text: m.text,
+      timestamp: m.created_at,
+    }))
+}
+
 export function getUserMessages(userId) {
   const db = readDb()
   return (db.messages || [])
-    .filter((m) => m.from_user_id === userId || m.to_user_id === userId)
+    .filter((m) => m.sender_id === userId || m.receiver_id === userId)
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
 }
 
@@ -370,7 +509,7 @@ export function markMessageRead(messageId) {
 
 export function getUnreadCount(userId) {
   const db = readDb()
-  return (db.messages || []).filter((m) => m.to_user_id === userId && !m.read).length
+  return (db.messages || []).filter((m) => m.receiver_id === userId && !m.read).length
 }
 
 export function getWishlist(userId) {
@@ -412,12 +551,20 @@ export function createNotification(userId, type, title, message, link) {
     title,
     message,
     link: link || null,
-    read: false,
+    is_read: false,
+    email_sent: false,
     created_at: new Date().toISOString(),
   }
 
   db.notifications.push(notif)
   writeDb(db)
+
+  const user = getUserById(userId)
+  const email = user?.email
+  if (email) {
+    console.log(`[EMAIL SIMULADO] Para: ${email} | Asunto: ${title} | Mensaje: ${message}`)
+  }
+
   return notif
 }
 
@@ -431,13 +578,13 @@ export function getUserNotifications(userId) {
 export function markNotificationRead(notifId) {
   const db = readDb()
   const notif = (db.notifications || []).find((n) => n.id === notifId)
-  if (notif) notif.read = true
+  if (notif) notif.is_read = true
   writeDb(db)
 }
 
 export function getUnreadNotificationCount(userId) {
   const db = readDb()
-  return (db.notifications || []).filter((n) => n.user_id === userId && !n.read).length
+  return (db.notifications || []).filter((n) => n.user_id === userId && !n.is_read).length
 }
 
 export function updateUserRole(userId, updates) {
@@ -487,4 +634,63 @@ export function getProductDetail(id) {
     },
     related_products: related,
   }
+}
+
+export function createReport(reportedById, productId, reason) {
+  const db = readDb()
+  if (!db.reports) db.reports = []
+
+  const product = getProductById(productId)
+  if (!product) return null
+
+  const reporter = getUserById(reportedById)
+  const report = {
+    id: crypto.randomUUID(),
+    product_id: productId,
+    reason,
+    reported_by: reporter?.email || 'desconocido',
+    reported_by_id: reportedById,
+    product_title: product.title,
+    seller_name: product.owner.name,
+    status: 'PENDING',
+    created_at: new Date().toISOString(),
+  }
+
+  db.reports.unshift(report)
+  writeDb(db)
+  return report
+}
+
+export function getPendingReports() {
+  const db = readDb()
+  return (db.reports || []).filter((r) => r.status === 'PENDING')
+}
+
+export function getAllReports() {
+  const db = readDb()
+  return db.reports || []
+}
+
+export function moderateProduct(productId, action, reason) {
+  const db = readDb()
+  const product = db.products.find((p) => p.id === productId)
+  if (!product) return null
+
+  if (action === 'SUSPEND') {
+    product.status = 'SUSPENDIDO'
+  } else if (action === 'ACTIVATE') {
+    product.status = 'ACTIVO'
+  } else {
+    return null
+  }
+
+  const relatedReports = (db.reports || []).filter((r) => r.product_id === productId && r.status === 'PENDING')
+  for (const r of relatedReports) {
+    r.status = action === 'SUSPEND' ? 'RESOLVED_SUSPENDED' : 'RESOLVED_ACTIVATED'
+    r.resolution_reason = reason
+    r.resolved_at = new Date().toISOString()
+  }
+
+  writeDb(db)
+  return { product_id: productId, status: product.status, reports_resolved: relatedReports.length }
 }

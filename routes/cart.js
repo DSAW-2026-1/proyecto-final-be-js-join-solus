@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { getCart, addToCart, updateCartItem, removeCartItem, clearCart } from '../data.js'
+import { getCart, addToCart, updateCartItem, removeCartItem, clearCart, formatCartResponse } from '../data.js'
 
 const router = Router()
 
@@ -17,12 +17,12 @@ function authenticate(req, res, next) {
   }
 }
 
-router.get('/cart', authenticate, (req, res) => {
+router.get('/cart/items', authenticate, (req, res) => {
   const cart = getCart(req.userId)
-  res.json({ status: 'success', data: cart })
+  res.json({ status: 'success', data: formatCartResponse(req.userId, cart) })
 })
 
-router.post('/cart', authenticate, (req, res) => {
+router.post('/cart/items', authenticate, (req, res) => {
   const { product_id, quantity } = req.body
   if (!product_id) {
     return res.status(400).json({ status: 'error', message: 'product_id es requerido' })
@@ -33,10 +33,14 @@ router.post('/cart', authenticate, (req, res) => {
     return res.status(404).json({ status: 'error', message: 'Producto no encontrado' })
   }
 
-  res.json({ status: 'success', data: cart })
+  res.json({
+    status: 'success',
+    message: 'Producto añadido al carrito',
+    data: formatCartResponse(req.userId, cart),
+  })
 })
 
-router.patch('/cart/:productId', authenticate, (req, res) => {
+router.patch('/cart/items/:productId', authenticate, (req, res) => {
   const { quantity } = req.body
   if (quantity === undefined || quantity < 0) {
     return res.status(400).json({ status: 'error', message: 'quantity inválido' })
@@ -47,20 +51,20 @@ router.patch('/cart/:productId', authenticate, (req, res) => {
     return res.status(404).json({ status: 'error', message: 'Producto no encontrado en el carrito' })
   }
 
-  res.json({ status: 'success', data: cart })
+  res.json({ status: 'success', data: formatCartResponse(req.userId, cart) })
 })
 
-router.delete('/cart/:productId', authenticate, (req, res) => {
+router.delete('/cart/items/:productId', authenticate, (req, res) => {
   const cart = removeCartItem(req.userId, req.params.productId)
   if (!cart) {
     return res.status(404).json({ status: 'error', message: 'Carrito no encontrado' })
   }
-  res.json({ status: 'success', data: cart })
+  res.json({ status: 'success', data: formatCartResponse(req.userId, cart) })
 })
 
-router.delete('/cart', authenticate, (req, res) => {
+router.delete('/cart/items', authenticate, (req, res) => {
   clearCart(req.userId)
-  res.json({ status: 'success', data: { items: [] } })
+  res.json({ status: 'success', data: formatCartResponse(req.userId, { items: [] }) })
 })
 
 export default router

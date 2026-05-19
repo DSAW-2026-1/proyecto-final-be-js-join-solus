@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { createReview, getProductReviews, getProductById, getUserById, createNotification } from '../data.js'
+import { createReview, getProductReviews, getProductById, getUserById, getAllOrders, createNotification } from '../data.js'
 
 const router = Router()
 
@@ -18,15 +18,30 @@ function authenticate(req, res, next) {
 }
 
 router.post('/reviews', authenticate, (req, res) => {
-  const { product_id, rating, comment } = req.body
-  if (!product_id || !rating) {
-    return res.status(400).json({ status: 'error', message: 'product_id y rating son requeridos' })
+  const { order_id, product_id, rating, comment } = req.body
+  if ((!order_id && !product_id) || !rating) {
+    return res.status(400).json({ status: 'error', message: 'order_id o product_id, y rating son requeridos' })
   }
   if (rating < 1 || rating > 5) {
     return res.status(400).json({ status: 'error', message: 'La calificación debe ser entre 1 y 5' })
   }
 
-  const product = getProductById(product_id)
+  let targetProductId = product_id
+  let targetSellerId = null
+
+  if (order_id) {
+    const orders = getAllOrders()
+    const order = orders.find((o) => o.id === order_id && o.buyer_id === req.userId)
+    if (!order) {
+      return res.status(404).json({ status: 'error', message: 'Orden no encontrada o no te pertenece' })
+    }
+    targetProductId = order.items[0]?.product_id
+    if (!targetProductId) {
+      return res.status(400).json({ status: 'error', message: 'La orden no tiene productos asociados' })
+    }
+  }
+
+  const product = getProductById(targetProductId)
   if (!product) {
     return res.status(404).json({ status: 'error', message: 'Producto no encontrado' })
   }
@@ -34,9 +49,9 @@ router.post('/reviews', authenticate, (req, res) => {
   const user = getUserById(req.userId)
   const userName = user?.profile?.full_name || user?.email || 'Anónimo'
 
-  const review = createReview(req.userId, userName, product_id, rating, comment)
-  createNotification(product.owner.id, 'review', 'Nueva reseña', `${userName} te dejó una reseña de ${rating} estrellas`, `/products/${product_id}`)
-  res.status(201).json({ status: 'success', message: 'Reseña publicada exitosamente', data: review })
+  const result = createReview(req.userId, userName, targetProductId, order_id, rating, comment)
+  createNotification(product.owner.id, 'review', 'Nueva reseña', `${userName} te dejó una reseña de ${rating} estrellas`, `/products/${targetProductId}`)
+  res.status(201).json({ status: 'success', message: 'Reseña publicada exitosamente', data: result })
 })
 
 router.get('/products/:id/reviews', (req, res) => {
