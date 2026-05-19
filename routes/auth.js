@@ -4,7 +4,7 @@ import { upsertUser, getUserByEmail } from '../data.js'
 
 const router = Router()
 
-const ADMIN_EMAILS = ['admin@unisabana.edu.co']
+const ADMIN_EMAILS = ['camilomova@unisabana.edu.co']
 
 router.post('/auth/login-provider', (req, res) => {
   const { id_token, provider, client_type } = req.body

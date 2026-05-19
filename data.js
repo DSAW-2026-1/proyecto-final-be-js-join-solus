@@ -7,6 +7,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const DB_PATH = process.env.VERCEL ? '/tmp/db.json' : join(__dirname, 'db.json')
 
 const SELLER_PROFILES = {
+  'camilomova@unisabana.edu.co': { career: 'Ingeniería Informática', faculty: 'Facultad de Ingeniería' },
   'camilomonva@unisabana.edu.co': { career: 'Ingeniería de Sistemas', faculty: 'Facultad de Ingeniería' },
   'mariagarcia@unisabana.edu.co': { career: 'Administración de Empresas', faculty: 'Facultad de Ciencias Económicas y Empresariales' },
   'andresperez@unisabana.edu.co': { career: 'Ingeniería Civil', faculty: 'Facultad de Ingeniería' },
