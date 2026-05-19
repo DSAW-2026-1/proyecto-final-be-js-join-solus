@@ -12,6 +12,10 @@ import cartRoutes from './routes/cart.js'
 import orderRoutes from './routes/orders.js'
 import adminRoutes from './routes/admin.js'
 import reviewRoutes from './routes/reviews.js'
+import messageRoutes from './routes/messages.js'
+import wishlistRoutes from './routes/wishlist.js'
+import notificationRoutes from './routes/notifications.js'
+import uploadRoutes from './routes/upload.js'
 
 const app = express()
 const PORT = process.env.PORT || 8080
@@ -30,6 +34,10 @@ app.use('/api', cartRoutes)
 app.use('/api', orderRoutes)
 app.use('/api', adminRoutes)
 app.use('/api', reviewRoutes)
+app.use('/api', messageRoutes)
+app.use('/api', wishlistRoutes)
+app.use('/api', notificationRoutes)
+app.use('/api', uploadRoutes)
 app.get('/api/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }))
 
 export default app
