@@ -35,7 +35,15 @@ router.post('/reviews', authenticate, (req, res) => {
     if (!order) {
       return res.status(404).json({ status: 'error', message: 'Orden no encontrada o no te pertenece' })
     }
-    targetProductId = order.items[0]?.product_id
+    if (product_id) {
+      const orderProduct = order.items.find((i) => i.product_id === product_id)
+      if (!orderProduct) {
+        return res.status(400).json({ status: 'error', message: 'El producto no pertenece a esta orden' })
+      }
+      targetProductId = product_id
+    } else {
+      targetProductId = order.items[0]?.product_id
+    }
     if (!targetProductId) {
       return res.status(400).json({ status: 'error', message: 'La orden no tiene productos asociados' })
     }

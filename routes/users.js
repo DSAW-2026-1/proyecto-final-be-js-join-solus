@@ -34,7 +34,7 @@ router.patch('/users/profile/onboarding', authenticate, (req, res) => {
     ...user,
     onboarding_completed: true,
     profile,
-    role_status: user.is_internal ? 'INSTITUTIONAL_BUYER' : 'VISITOR',
+    role_status: user.is_seller ? 'VENDEDOR' : user.is_internal ? 'INSTITUTIONAL_BUYER' : 'VISITOR',
     can_list_products: user.is_internal,
   }
 

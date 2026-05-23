@@ -64,7 +64,9 @@ function readDb() {
     if (existsSync(DB_PATH)) {
       return JSON.parse(readFileSync(DB_PATH, 'utf-8'))
     }
-  } catch {}
+  } catch (err) {
+    console.error('[data.js] Error leyendo db.json, generando datos default:', err.message)
+  }
   const db = getDefaultDb()
   writeDb(db)
   return db
@@ -73,7 +75,9 @@ function readDb() {
 function writeDb(db) {
   try {
     writeFileSync(DB_PATH, JSON.stringify(db, null, 2))
-  } catch {}
+  } catch (err) {
+    console.error('[data.js] Error escribiendo db.json:', err.message)
+  }
 }
 
 export function getUsers() {
@@ -581,13 +585,16 @@ export function getUserNotifications(userId) {
 export function markNotificationRead(notifId) {
   const db = readDb()
   const notif = (db.notifications || []).find((n) => n.id === notifId)
-  if (notif) notif.is_read = true
+  if (notif) {
+    notif.is_read = true
+    if ('read' in notif) delete notif.read
+  }
   writeDb(db)
 }
 
 export function getUnreadNotificationCount(userId) {
   const db = readDb()
-  return (db.notifications || []).filter((n) => n.user_id === userId && !n.is_read).length
+  return (db.notifications || []).filter((n) => n.user_id === userId && !(n.is_read || n.read)).length
 }
 
 export function updateUserRole(userId, updates) {
@@ -612,7 +619,7 @@ export function getProductDetail(id) {
   const related = getProducts()
     .filter((p) => p.id !== id && p.category === product.category && p.status === 'ACTIVO')
     .slice(0, 4)
-    .map((p) => ({ id: p.id, title: p.title, price: p.price, thumbnail: p.images?.[0] || null }))
+    .map((p) => ({ id: p.id, title: p.title, price: p.price, category: p.category, thumbnail: p.images?.[0] || null }))
 
   return {
     product: {

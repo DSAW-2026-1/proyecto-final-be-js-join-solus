@@ -14,6 +14,7 @@ try {
 } catch {}
 
 const MAX_IMAGE_SIZE = 5 * 1024 * 1024
+const ALLOWED_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp']
 
 function authenticate(req, res, next) {
   const auth = req.headers.authorization
@@ -42,7 +43,7 @@ router.post('/upload', authenticate, (req, res) => {
     if (!matches) return null
 
     const ext = matches[2] === 'jpeg' ? 'jpg' : matches[2]
-    if (ext === 'svg+xml' || ext === 'svg') return null
+    if (!ALLOWED_EXTENSIONS.includes(ext)) return null
 
     const base64Data = matches[3]
     if ((base64Data.length * 3) / 4 > MAX_IMAGE_SIZE) return null

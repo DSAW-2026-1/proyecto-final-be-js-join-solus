@@ -146,14 +146,16 @@ router.get('/orders/history', authenticate, (req, res) => {
         const p = getProductById(item.product_id)
         return p?.owner?.id === req.userId
       })
+      const sellerTotal = sellerItems.reduce((sum, item) => sum + item.price * item.quantity, 0)
       return {
         order_id: o.id,
         date: o.created_at,
-        total: o.total,
+        total: sellerTotal,
         status: o.status,
         items: sellerItems.map((item) => ({
           title: item.title,
           quantity: item.quantity,
+          price: item.price,
           thumbnail: (() => { const p = getProductById(item.product_id); return p?.images?.[0] || null })(),
         })),
         buyer: {

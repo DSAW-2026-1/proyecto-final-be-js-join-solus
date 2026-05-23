@@ -4,6 +4,7 @@ import { upsertUser, getUserByEmail } from '../data.js'
 
 const router = Router()
 
+const JWT_SECRET = process.env.JWT_SECRET || 'marketplace-unisabana-dev-secret'
 const ADMIN_EMAILS = ['camilomova@unisabana.edu.co']
 
 router.post('/auth/login-provider', (req, res) => {
@@ -12,7 +13,12 @@ router.post('/auth/login-provider', (req, res) => {
     return res.status(400).json({ status: 'error', message: 'id_token y provider son requeridos' })
   }
 
-  const payload = JSON.parse(atob(id_token.split('.')[1]))
+  let payload
+  try {
+    payload = JSON.parse(atob(id_token.split('.')[1]))
+  } catch {
+    return res.status(400).json({ status: 'error', message: 'Token inválido' })
+  }
   const email = payload.email || `${payload.sub}@mock.com`
   const isInternal = email.endsWith('@unisabana.edu.co')
   const isAdmin = ADMIN_EMAILS.includes(email)
@@ -43,7 +49,10 @@ router.post('/auth/login-provider', (req, res) => {
 
   upsertUser(user)
 
-  const token = `mock.${btoa(JSON.stringify({ sub: user.id, email, is_internal: isInternal, is_admin: isAdmin }))}.sig`
+  const tokenPayload = JSON.stringify({ sub: user.id, email, is_internal: isInternal, is_admin: isAdmin })
+  const encodedPayload = Buffer.from(tokenPayload).toString('base64')
+  const signature = crypto.createHmac('sha256', JWT_SECRET).update(encodedPayload).digest('base64')
+  const token = `mock.${encodedPayload}.${signature}`
 
   res.json({
     status: 'success',
