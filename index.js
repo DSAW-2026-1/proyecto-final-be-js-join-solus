@@ -45,9 +45,11 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }))
 app.use(express.urlencoded({ extended: true }))
 
-const uploadsDir = join(__dirname, 'uploads')
-if (!existsSync(uploadsDir)) mkdirSync(uploadsDir, { recursive: true })
-app.use('/uploads', express.static(uploadsDir))
+if (!process.env.VERCEL) {
+  const uploadsDir = join(__dirname, 'uploads')
+  if (!existsSync(uploadsDir)) mkdirSync(uploadsDir, { recursive: true })
+  app.use('/uploads', express.static(uploadsDir))
+}
 
 app.use('/api', authRoutes)
 app.use('/api', userRoutes)

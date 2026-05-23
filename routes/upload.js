@@ -33,6 +33,10 @@ function authenticate(req, res, next) {
 const router = Router()
 
 router.post('/upload', authenticate, (req, res) => {
+  if (process.env.VERCEL) {
+    return res.status(400).json({ status: 'error', message: 'Subida de imágenes no disponible en producción. Usa las imágenes por defecto.' })
+  }
+
   const { images } = req.body
   if (!images || !Array.isArray(images) || images.length === 0) {
     return res.status(400).json({ status: 'error', message: 'Se requiere un array de imágenes en base64' })
@@ -51,7 +55,11 @@ router.post('/upload', authenticate, (req, res) => {
     const filename = `${crypto.randomUUID()}.${ext}`
     const filepath = join(UPLOADS_DIR, filename)
 
-    writeFileSync(filepath, Buffer.from(base64Data, 'base64'))
+    try {
+      writeFileSync(filepath, Buffer.from(base64Data, 'base64'))
+    } catch {
+      return null
+    }
     return `/uploads/${filename}`
   }).filter(Boolean)
 
