@@ -25,9 +25,15 @@ import { getUserById, sendMessage, getConversationMessages, createNotification }
 const app = express()
 const PORT = process.env.PORT || 8080
 
+const DEFAULT_ORIGINS = [
+  'http://localhost:3000',
+  'http://localhost:5173',
+  'http://127.0.0.1:3000',
+  'https://proyecto-final-fe-js-join-solus.vercel.app',
+]
 const corsOrigins = process.env.CORS_ORIGINS
   ? process.env.CORS_ORIGINS.split(',').map((s) => s.trim())
-  : ['http://localhost:3000', 'http://localhost:5173', 'http://127.0.0.1:3000']
+  : DEFAULT_ORIGINS
 
 app.use(cors({
   origin: corsOrigins,
