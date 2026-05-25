@@ -46,48 +46,42 @@ const isProduction = process.env.NODE_ENV === 'production'
 
 // --- Validate required env vars ---
 const REQUIRED_ENV = ['JWT_SECRET', 'DATABASE_URL']
-if (isProduction) {
+if (isProduction && !process.env.VERCEL) {
   REQUIRED_ENV.push('GOOGLE_CLIENT_ID', 'CORS_ORIGINS')
 }
-for (const key of REQUIRED_ENV) {
-  if (!process.env[key]) {
-    logger.error({ key }, 'Missing required environment variable')
-    process.exit(1)
-  }
+const missing = REQUIRED_ENV.filter((key) => !process.env[key])
+if (missing.length > 0) {
+  logger.error({ missing }, 'Missing required environment variables')
+  throw new Error(`Faltan variables de entorno requeridas: ${missing.join(', ')}`)
 }
 
 // --- Env validation complete ---
 
-// --- Graceful shutdown ---
+// --- Graceful shutdown (not needed on Vercel serverless) ---
 let server
-function shutdown(signal) {
-  logger.info({ signal }, 'Shutting down gracefully...')
-  if (server) {
-    server.close(() => {
-      logger.info('HTTP server closed')
-      import('./db.js').then(({ prisma }) => {
-        prisma.$disconnect()
-        logger.info('Database connections closed')
-        process.exit(0)
-      }).catch(() => process.exit(0))
-    })
-    setTimeout(() => {
-      logger.error('Forced shutdown after timeout')
-      process.exit(1)
-    }, 10000).unref()
-  } else {
-    process.exit(0)
+if (!process.env.VERCEL) {
+  function shutdown(signal) {
+    logger.info({ signal }, 'Shutting down gracefully...')
+    if (server) {
+      server.close(() => {
+        logger.info('HTTP server closed')
+        import('./db.js').then(({ prisma }) => {
+          prisma.$disconnect()
+          logger.info('Database connections closed')
+          process.exit(0)
+        }).catch(() => process.exit(0))
+      })
+      setTimeout(() => {
+        logger.error('Forced shutdown after timeout')
+        process.exit(1)
+      }, 10000).unref()
+    } else {
+      process.exit(0)
+    }
   }
+  process.on('SIGTERM', () => shutdown('SIGTERM'))
+  process.on('SIGINT', () => shutdown('SIGINT'))
 }
-process.on('SIGTERM', () => shutdown('SIGTERM'))
-process.on('SIGINT', () => shutdown('SIGINT'))
-process.on('uncaughtException', (err) => {
-  logger.error({ err: err.message, stack: err.stack }, 'Uncaught exception')
-  process.exit(1)
-})
-process.on('unhandledRejection', (reason) => {
-  logger.error({ reason }, 'Unhandled rejection')
-})
 
 // --- Sentry (error tracking) ---
 if (process.env.SENTRY_DSN) {
