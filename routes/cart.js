@@ -1,34 +1,22 @@
 import { Router } from 'express'
-import { getCart, addToCart, updateCartItem, removeCartItem, clearCart, formatCartResponse } from '../data.js'
+import { getCart, addToCart, updateCartItem, removeCartItem, clearCart, formatCartResponse } from '../db.js'
+import { authenticate } from '../middleware/auth.js'
+import { cartItemSchema, validate } from '../validators/index.js'
 
 const router = Router()
 
-function authenticate(req, res, next) {
-  const auth = req.headers.authorization
-  if (!auth || !auth.startsWith('Bearer ')) {
-    return res.status(401).json({ status: 'error', message: 'Token requerido' })
-  }
-  try {
-    const payload = JSON.parse(atob(auth.split('.')[1]))
-    req.userId = payload.sub
-    next()
-  } catch {
-    return res.status(401).json({ status: 'error', message: 'Token inválido' })
-  }
-}
-
-router.get('/cart/items', authenticate, (req, res) => {
-  const cart = getCart(req.userId)
+router.get('/cart/items', authenticate, async (req, res) => {
+  const cart = await getCart(req.userId)
   res.json({ status: 'success', data: formatCartResponse(req.userId, cart) })
 })
 
-router.post('/cart/items', authenticate, (req, res) => {
+router.post('/cart/items', authenticate, validate(cartItemSchema), async (req, res) => {
   const { product_id, quantity } = req.body
   if (!product_id) {
     return res.status(400).json({ status: 'error', message: 'product_id es requerido' })
   }
 
-  const cart = addToCart(req.userId, product_id, quantity || 1)
+  const cart = await addToCart(req.userId, product_id, quantity || 1)
   if (!cart) {
     return res.status(404).json({ status: 'error', message: 'Producto no encontrado' })
   }
@@ -40,13 +28,13 @@ router.post('/cart/items', authenticate, (req, res) => {
   })
 })
 
-router.patch('/cart/items/:productId', authenticate, (req, res) => {
+router.patch('/cart/items/:productId', authenticate, async (req, res) => {
   const { quantity } = req.body
   if (quantity === undefined || quantity < 0) {
     return res.status(400).json({ status: 'error', message: 'quantity inválido' })
   }
 
-  const cart = updateCartItem(req.userId, req.params.productId, quantity)
+  const cart = await updateCartItem(req.userId, req.params.productId, quantity)
   if (!cart) {
     return res.status(404).json({ status: 'error', message: 'Producto no encontrado en el carrito' })
   }
@@ -54,16 +42,16 @@ router.patch('/cart/items/:productId', authenticate, (req, res) => {
   res.json({ status: 'success', data: formatCartResponse(req.userId, cart) })
 })
 
-router.delete('/cart/items/:productId', authenticate, (req, res) => {
-  const cart = removeCartItem(req.userId, req.params.productId)
+router.delete('/cart/items/:productId', authenticate, async (req, res) => {
+  const cart = await removeCartItem(req.userId, req.params.productId)
   if (!cart) {
     return res.status(404).json({ status: 'error', message: 'Carrito no encontrado' })
   }
   res.json({ status: 'success', data: formatCartResponse(req.userId, cart) })
 })
 
-router.delete('/cart/items', authenticate, (req, res) => {
-  clearCart(req.userId)
+router.delete('/cart/items', authenticate, async (req, res) => {
+  await clearCart(req.userId)
   res.json({ status: 'success', data: formatCartResponse(req.userId, { items: [] }) })
 })
 

@@ -1,29 +1,21 @@
 import { Router } from 'express'
-import { getUsers, getProducts, getAllOrders, updateProductStatus, updateUserRole, getPendingReports, getAllReports, moderateProduct, createReport } from '../data.js'
+import { getUsers, getProducts, getAllOrders, updateProductStatus, updateUserRole, getPendingReports, getAllReports, moderateProduct, createReport, getAnalytics } from '../db.js'
+import { adminAuth, authenticate } from '../middleware/auth.js'
+import { auditLog, LOG_ACTIONS } from '../services/audit.js'
 
 const router = Router()
 
-function adminAuth(req, res, next) {
-  const auth = req.headers.authorization
-  if (!auth || !auth.startsWith('Bearer ')) {
-    return res.status(401).json({ status: 'error', message: 'Token requerido' })
-  }
-  try {
-    const payload = JSON.parse(atob(auth.split('.')[1]))
-    if (!payload.is_admin) {
-      return res.status(403).json({ status: 'error', message: 'Acceso denegado. Se requieren permisos de administrador' })
-    }
-    req.userId = payload.sub
+function audit(action) {
+  return (req, res, next) => {
+    res.on('finish', () => {
+      auditLog({ action, userId: req.userId, userEmail: req.userEmail, details: { statusCode: res.statusCode, path: req.path }, ip: req.ip })
+    })
     next()
-  } catch {
-    return res.status(401).json({ status: 'error', message: 'Token inválido' })
   }
 }
 
-router.get('/admin/stats', adminAuth, (req, res) => {
-  const users = getUsers()
-  const products = getProducts()
-  const orders = getAllOrders()
+router.get('/admin/stats', adminAuth, audit(LOG_ACTIONS.ADMIN_STATS), async (req, res) => {
+  const [users, products, orders] = await Promise.all([getUsers(), getProducts(), getAllOrders()])
 
   res.json({
     status: 'success',
@@ -43,61 +35,79 @@ router.get('/admin/stats', adminAuth, (req, res) => {
   })
 })
 
-router.get('/admin/users', adminAuth, (req, res) => {
-  const users = getUsers().map(({ password, ...u }) => u)
-  res.json({ status: 'success', data: users })
+router.get('/admin/analytics', adminAuth, async (req, res) => {
+  const data = await getAnalytics()
+  res.json({ status: 'success', data })
 })
 
-router.patch('/admin/users/:id', adminAuth, (req, res) => {
+router.get('/admin/users', adminAuth, async (req, res) => {
+  const page = Math.max(1, Number(req.query.page) || 1)
+  const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50))
+  const skip = (page - 1) * limit
+  const allUsers = await getUsers()
+  const total = allUsers.length
+  const sanitized = allUsers.slice(skip, skip + limit).map(({ password, ...u }) => u)
+  res.json({
+    status: 'success',
+    data: sanitized,
+    meta: { page, limit, total, total_pages: Math.ceil(total / limit) },
+  })
+})
+
+router.patch('/admin/users/:id', adminAuth, audit(LOG_ACTIONS.ADMIN_UPDATE_USER), async (req, res) => {
   const { is_admin, is_seller, onboarding_completed, role_status } = req.body
-  const updated = updateUserRole(req.params.id, { is_admin, is_seller, onboarding_completed, role_status })
+  const updated = await updateUserRole(req.params.id, { is_admin, is_seller, onboarding_completed, role_status })
   if (!updated) {
     return res.status(404).json({ status: 'error', message: 'Usuario no encontrado' })
   }
   res.json({ status: 'success', data: updated })
 })
 
-router.get('/admin/products', adminAuth, (req, res) => {
-  const products = getProducts()
-  res.json({ status: 'success', data: products })
+router.get('/admin/products', adminAuth, async (req, res) => {
+  const page = Math.max(1, Number(req.query.page) || 1)
+  const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50))
+  const skip = (page - 1) * limit
+  const allProducts = await getProducts()
+  const total = allProducts.length
+  res.json({
+    status: 'success',
+    data: allProducts.slice(skip, skip + limit),
+    meta: { page, limit, total, total_pages: Math.ceil(total / limit) },
+  })
 })
 
-router.patch('/admin/products/:id/status', adminAuth, (req, res) => {
+router.patch('/admin/products/:id/status', adminAuth, audit(LOG_ACTIONS.ADMIN_MODERATE_PRODUCT), async (req, res) => {
   const { status } = req.body
   if (!['ACTIVO', 'INACTIVO', 'SUSPENDIDO'].includes(status)) {
     return res.status(400).json({ status: 'error', message: 'Estado inválido' })
   }
-  const product = updateProductStatus(req.params.id, status)
+  const product = await updateProductStatus(req.params.id, status)
   if (!product) {
     return res.status(404).json({ status: 'error', message: 'Producto no encontrado' })
   }
   res.json({ status: 'success', data: product })
 })
 
-router.get('/admin/orders', adminAuth, (req, res) => {
-  const orders = getAllOrders()
-  res.json({ status: 'success', data: orders })
+router.get('/admin/orders', adminAuth, async (req, res) => {
+  const page = Math.max(1, Number(req.query.page) || 1)
+  const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50))
+  const skip = (page - 1) * limit
+  const allOrders = await getAllOrders()
+  const total = allOrders.length
+  res.json({
+    status: 'success',
+    data: allOrders.slice(skip, skip + limit),
+    meta: { page, limit, total, total_pages: Math.ceil(total / limit) },
+  })
 })
 
-router.post('/reports', (req, res) => {
-  const auth = req.headers.authorization
-  if (!auth || !auth.startsWith('Bearer ')) {
-    return res.status(401).json({ status: 'error', message: 'Token requerido' })
-  }
-  let userId
-  try {
-    const payload = JSON.parse(atob(auth.split('.')[1]))
-    userId = payload.sub
-  } catch {
-    return res.status(401).json({ status: 'error', message: 'Token inválido' })
-  }
-
+router.post('/reports', authenticate, async (req, res) => {
   const { product_id, reason } = req.body
   if (!product_id || !reason) {
     return res.status(400).json({ status: 'error', message: 'product_id y reason son requeridos' })
   }
 
-  const report = createReport(userId, product_id, reason)
+  const report = await createReport(req.userId, product_id, reason)
   if (!report) {
     return res.status(404).json({ status: 'error', message: 'Producto no encontrado' })
   }
@@ -105,23 +115,19 @@ router.post('/reports', (req, res) => {
   res.status(201).json({ status: 'success', message: 'Reporte enviado. El equipo de administración lo revisará.', data: { report_id: report.id } })
 })
 
-router.get('/admin/reports', adminAuth, (req, res) => {
-  const pending = getPendingReports()
+router.get('/admin/reports', adminAuth, async (req, res) => {
+  const pending = await getPendingReports()
   const mapped = pending.map((r) => ({
     report_id: r.id,
     reason: r.reason,
     reported_by: r.reported_by,
-    product: {
-      id: r.product_id,
-      title: r.product_title,
-      seller_name: r.seller_name,
-    },
-    created_at: r.created_at,
+    product: { id: r.product_id, title: r.product_title, seller_name: r.seller_name },
+    created_at: r.created_at?.toISOString?.() || r.created_at,
   }))
   res.json({ status: 'success', data: { pending_reports: mapped } })
 })
 
-router.post('/admin/moderate-product', adminAuth, (req, res) => {
+router.post('/admin/moderate-product', adminAuth, audit(LOG_ACTIONS.ADMIN_MODERATE_PRODUCT), async (req, res) => {
   const { product_id, action, reason } = req.body
   if (!product_id || !action || !reason) {
     return res.status(400).json({ status: 'error', message: 'product_id, action y reason son requeridos' })
@@ -130,7 +136,7 @@ router.post('/admin/moderate-product', adminAuth, (req, res) => {
     return res.status(400).json({ status: 'error', message: 'Acción inválida. Use SUSPEND o ACTIVATE' })
   }
 
-  const result = moderateProduct(product_id, action, reason)
+  const result = await moderateProduct(product_id, action, reason)
   if (!result) {
     return res.status(404).json({ status: 'error', message: 'Producto no encontrado' })
   }

@@ -1,0 +1,82 @@
+# Production Docker Compose
+# 1. Build frontend: cd frontend && npm run build
+# 2. Copy .env.production.example to .env and fill secrets
+# 3. docker compose -f docker-compose.prod.yml up -d
+# 4. Configure SSL with certbot: docker exec marketplace-ui certbot ... (or use external proxy)
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: marketplace-db
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-marketplace_unisabana}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backups:/backups
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - marketplace-net
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: marketplace-api
+    restart: unless-stopped
+    expose:
+      - "8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/marketplace_unisabana?connection_limit=10&pool_timeout=10&connect_timeout=10}"
+      PORT: "8080"
+      JWT_SECRET: "${JWT_SECRET}"
+      JWT_EXPIRES_IN: "${JWT_EXPIRES_IN:-7d}"
+      CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:3000}"
+      NODE_ENV: "production"
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
+      CLOUDINARY_CLOUD_NAME: "${CLOUDINARY_CLOUD_NAME}"
+      CLOUDINARY_API_KEY: "${CLOUDINARY_API_KEY}"
+      CLOUDINARY_API_SECRET: "${CLOUDINARY_API_SECRET}"
+      SENTRY_DSN: "${SENTRY_DSN}"
+      FRONTEND_URL: "${FRONTEND_URL:-http://localhost:3000}"
+      SENDGRID_API_KEY: "${SENDGRID_API_KEY}"
+      FROM_EMAIL: "${FROM_EMAIL:-noreply@marketplacesabana.com}"
+      FROM_NAME: "${FROM_NAME:-Marketplace Sabana}"
+      GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID}"
+      MICROSOFT_CLIENT_ID: "${MICROSOFT_CLIENT_ID}"
+      MICROSOFT_TENANT_ID: "${MICROSOFT_TENANT_ID:-common}"
+    networks:
+      - marketplace-net
+
+  nginx:
+    image: nginx:alpine
+    container_name: marketplace-ui
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./frontend/dist:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - backend
+    networks:
+      - marketplace-net
+
+volumes:
+  pgdata:
+
+networks:
+  marketplace-net:
+    driver: bridge

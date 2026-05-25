@@ -1,48 +1,50 @@
 import crypto from 'crypto'
 import { Router } from 'express'
+import { v2 as cloudinary } from 'cloudinary'
+import { CloudinaryStorage } from 'multer-storage-cloudinary'
 import multer from 'multer'
-import { join, dirname } from 'path'
-import { fileURLToPath } from 'url'
-import { addProduct, updateProduct, deleteProduct, getProductsByOwner, getUserById, getProductById, searchProducts, getProductDetail } from '../data.js'
+import { addProduct, updateProduct, deleteProduct, getProductsByOwner, getUserById, getProductById, searchProducts, getProductDetail } from '../db.js'
+import { authenticate } from '../middleware/auth.js'
+import { productSchema, productUpdateSchema, validate } from '../validators/index.js'
 
-const __dirname = dirname(fileURLToPath(import.meta.url))
-const UPLOADS_DIR = join(__dirname, '..', 'uploads')
-
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, UPLOADS_DIR),
-  filename: (_req, file, cb) => {
-    const ext = file.originalname.split('.').pop()
-    cb(null, `${crypto.randomUUID()}.${ext}`)
-  },
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
 })
 
-const upload = multer({
-  storage,
-  limits: { fileSize: 5 * 1024 * 1024 },
-  fileFilter: (_req, file, cb) => {
+let upload
+if (process.env.CLOUDINARY_CLOUD_NAME) {
+  const storage = new CloudinaryStorage({
+    cloudinary,
+    params: { folder: 'marketplace-unisabana', allowed_formats: ['jpg', 'jpeg', 'png', 'gif', 'webp'], max_file_size: 5 * 1024 * 1024 },
+  })
+  upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 } })
+} else {
+  const { join, dirname } = await import('path')
+  const { fileURLToPath } = await import('url')
+  const { mkdirSync, existsSync } = await import('fs')
+  const __dirname = dirname(fileURLToPath(import.meta.url))
+  const UPLOADS_DIR = join(__dirname, '..', 'uploads')
+  if (!existsSync(UPLOADS_DIR)) mkdirSync(UPLOADS_DIR, { recursive: true })
+
+  const storage = multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, UPLOADS_DIR),
+    filename: (_req, file, cb) => {
+      const ext = file.originalname.split('.').pop()
+      cb(null, `${crypto.randomUUID()}.${ext}`)
+    },
+  })
+  upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 }, fileFilter: (_req, file, cb) => {
     if (file.mimetype.startsWith('image/')) cb(null, true)
     else cb(new Error('Solo imágenes son permitidas'), false)
-  },
-})
+  }})
+}
 
 const router = Router()
 
-function authenticate(req, res, next) {
-  const auth = req.headers.authorization
-  if (!auth || !auth.startsWith('Bearer ')) {
-    return res.status(401).json({ status: 'error', message: 'Token requerido' })
-  }
-  try {
-    const payload = JSON.parse(atob(auth.split('.')[1]))
-    req.userId = payload.sub
-    next()
-  } catch {
-    return res.status(401).json({ status: 'error', message: 'Token inválido' })
-  }
-}
-
-router.post('/products', authenticate, upload.array('images', 6), (req, res) => {
-  const user = getUserById(req.userId)
+router.post('/products', authenticate, validate(productSchema), upload.array('images', 6), async (req, res) => {
+  const user = await getUserById(req.userId)
   if (!user) return res.status(404).json({ status: 'error', message: 'Usuario no encontrado' })
   if (!user.is_seller) {
     return res.status(403).json({ status: 'error', message: 'Debes activar tu cuenta de vendedor para publicar productos' })
@@ -57,7 +59,7 @@ router.post('/products', authenticate, upload.array('images', 6), (req, res) => 
   if (req.body.existing_images) {
     try { images = JSON.parse(req.body.existing_images) } catch { images = [] }
   }
-  const newImages = (req.files || []).map((f) => `/uploads/${f.filename}`)
+  const newImages = (req.files || []).map((f) => f.path || `/uploads/${f.filename}`)
   images = [...images, ...newImages]
 
   const product = {
@@ -71,6 +73,7 @@ router.post('/products', authenticate, upload.array('images', 6), (req, res) => 
     images,
     status: 'ACTIVO',
     created_at: new Date().toISOString(),
+    owner_id: user.id,
     owner: { id: user.id, name: user.profile?.full_name || user.email, email: user.email },
     seller_info: user.seller_info ? { store_name: user.seller_info.store_name, reputation: user.seller_info.reputation } : null,
   }
@@ -79,7 +82,7 @@ router.post('/products', authenticate, upload.array('images', 6), (req, res) => 
     return res.status(400).json({ status: 'error', message: 'El precio debe ser un número positivo' })
   }
 
-  addProduct(product)
+  await addProduct(product)
 
   res.status(201).json({
     status: 'success',
@@ -94,31 +97,32 @@ router.post('/products', authenticate, upload.array('images', 6), (req, res) => 
   })
 })
 
-router.get('/products/search', (req, res) => {
-  const result = searchProducts(req.query)
+router.get('/products/search', async (req, res) => {
+  const result = await searchProducts(req.query)
   res.json({ status: 'success', ...result })
 })
 
-router.get('/products/my', authenticate, (req, res) => {
-  const products = getProductsByOwner(req.userId)
+router.get('/products/my', authenticate, async (req, res) => {
+  const products = await getProductsByOwner(req.userId)
   res.json({ status: 'success', data: products })
 })
 
-router.patch('/products/:id', authenticate, (req, res) => {
+router.patch('/products/:id', authenticate, validate(productUpdateSchema), async (req, res) => {
   const isMultipart = (req.headers['content-type'] || '').includes('multipart/form-data')
   if (isMultipart) {
-    return upload.array('images', 6)(req, res, () => handlePatch(req, res))
+    upload.array('images', 6)(req, res, () => handlePatch(req, res))
+  } else {
+    handlePatch(req, res)
   }
-  handlePatch(req, res)
 })
 
-function handlePatch(req, res) {
-  const user = getUserById(req.userId)
+async function handlePatch(req, res) {
+  const user = await getUserById(req.userId)
   if (!user) return res.status(404).json({ status: 'error', message: 'Usuario no encontrado' })
 
-  const product = getProductById(req.params.id)
+  const product = await getProductById(req.params.id)
   if (!product) return res.status(404).json({ status: 'error', message: 'Producto no encontrado' })
-  if (product.owner.id !== req.userId) {
+  if (product.owner_id !== req.userId) {
     return res.status(403).json({ status: 'error', message: 'No tienes permiso para editar este producto' })
   }
 
@@ -129,7 +133,7 @@ function handlePatch(req, res) {
     try { allImages = JSON.parse(existing_images) } catch { allImages = [] }
   }
 
-  const newImages = (req.files || []).map((f) => `/uploads/${f.filename}`)
+  const newImages = (req.files || []).map((f) => f.path || `/uploads/${f.filename}`)
   if (newImages.length > 0) {
     allImages = [...(allImages || []), ...newImages]
   }
@@ -144,26 +148,26 @@ function handlePatch(req, res) {
   if (allImages !== undefined) updates.images = allImages
   if (status !== undefined) updates.status = status
 
-  const updated = updateProduct(req.params.id, updates)
+  const updated = await updateProduct(req.params.id, updates)
   res.json({ status: 'success', message: 'Producto actualizado exitosamente', data: updated })
 }
 
-router.delete('/products/:id', authenticate, (req, res) => {
-  const user = getUserById(req.userId)
+router.delete('/products/:id', authenticate, async (req, res) => {
+  const user = await getUserById(req.userId)
   if (!user) return res.status(404).json({ status: 'error', message: 'Usuario no encontrado' })
 
-  const product = getProductById(req.params.id)
+  const product = await getProductById(req.params.id)
   if (!product) return res.status(404).json({ status: 'error', message: 'Producto no encontrado' })
-  if (product.owner.id !== req.userId) {
+  if (product.owner_id !== req.userId) {
     return res.status(403).json({ status: 'error', message: 'No tienes permiso para eliminar este producto' })
   }
 
-  deleteProduct(req.params.id)
+  await deleteProduct(req.params.id)
   res.json({ status: 'success', message: 'Producto eliminado exitosamente' })
 })
 
-router.get('/products/:id', (req, res) => {
-  const detail = getProductDetail(req.params.id)
+router.get('/products/:id', async (req, res) => {
+  const detail = await getProductDetail(req.params.id)
   if (!detail) {
     return res.status(404).json({ status: 'error', message: 'Producto no encontrado' })
   }

@@ -1,6 +1,9 @@
-node_modules
+node_modules/
+.env
+.env.local
+audit-logs/
 uploads/*
-db.json
+!uploads/.gitkeep
+logs/
 *.log
 .DS_Store
-.env

@@ -1,0 +1,175 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  NODE_VERSION: 20
+  DATABASE_URL: postgresql://postgres:postgres@localhost:5432/marketplace_unisabana_test
+
+jobs:
+  lint-and-typecheck:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      - name: Install backend dependencies
+        run: npm install
+        working-directory: ./backend
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+        working-directory: ./backend
+
+      - name: Check backend syntax
+        run: node --check index.js && node --check db.js
+        working-directory: ./backend
+
+      - name: Install frontend dependencies
+        run: npm install
+        working-directory: ./frontend
+
+      - name: Build frontend
+        run: npm run build
+        working-directory: ./frontend
+
+      - name: Audit backend dependencies
+        run: npm audit --audit-level=high || echo "Vulnerabilities found — review manually"
+        working-directory: ./backend
+        continue-on-error: true
+
+      - name: Audit frontend dependencies
+        run: npm audit --audit-level=high || echo "Vulnerabilities found — review manually"
+        working-directory: ./frontend
+        continue-on-error: true
+
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: marketplace_unisabana_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        run: npm install
+        working-directory: ./backend
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+        working-directory: ./backend
+
+      - name: Run migrations
+        run: npx prisma migrate deploy
+        working-directory: ./backend
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+
+      - name: Run seed
+        run: node -r dotenv/config prisma/seed.js
+        working-directory: ./backend
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+
+      - name: Run backend unit tests
+        run: npm test
+        working-directory: ./backend
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+          JWT_SECRET: test-secret
+
+      - name: Start server & integration tests
+        run: |
+          node index.js &
+          SERVER_PID=$!
+          sleep 3
+          curl -f http://localhost:8080/api/health || exit 1
+          curl -f http://localhost:8080/api/products/search || exit 1
+          kill $SERVER_PID 2>/dev/null
+        working-directory: ./backend
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL }}
+          PORT: 8080
+          JWT_SECRET: test-secret
+
+  frontend-tests:
+    name: Frontend Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm install
+        working-directory: ./frontend
+
+      - name: Run frontend unit tests
+        run: npm test
+        working-directory: ./frontend
+
+      - name: Build frontend
+        run: npm run build
+        working-directory: ./frontend
+
+  deploy-backend:
+    name: Deploy Backend (Vercel)
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    needs: [lint-and-typecheck, test, frontend-tests]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy to Vercel
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID_BACKEND }}
+          vercel-args: '--prod'
+
+  deploy-frontend:
+    name: Deploy Frontend (Vercel)
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    needs: [lint-and-typecheck, test, frontend-tests]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy to Vercel
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID_FRONTEND }}
+          vercel-args: '--prod'

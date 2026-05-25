@@ -1,28 +1,16 @@
 import { Router } from 'express'
-import { getUserById, upsertUser } from '../data.js'
+import { getUserById, upsertUser } from '../db.js'
+import { authenticate } from '../middleware/auth.js'
+import { onboardingSchema, sellerActivationSchema, validate } from '../validators/index.js'
+import { sendWelcomeEmail } from '../email.js'
 
 const router = Router()
 
-function authenticate(req, res, next) {
-  const auth = req.headers.authorization
-  if (!auth || !auth.startsWith('Bearer ')) {
-    return res.status(401).json({ status: 'error', message: 'Token requerido' })
-  }
-  try {
-    const payload = JSON.parse(atob(auth.split('.')[1]))
-    req.userId = payload.sub
-    next()
-  } catch {
-    return res.status(401).json({ status: 'error', message: 'Token inválido' })
-  }
-}
-
-router.patch('/users/profile/onboarding', authenticate, (req, res) => {
-  const user = getUserById(req.userId)
+router.patch('/users/profile/onboarding', authenticate, validate(onboardingSchema), async (req, res) => {
+  const user = await getUserById(req.userId)
   if (!user) return res.status(404).json({ status: 'error', message: 'Usuario no encontrado' })
 
   const { full_name, profile_picture, academic_info, bio } = req.body
-
   const profile = {
     full_name,
     profile_picture,
@@ -30,15 +18,17 @@ router.patch('/users/profile/onboarding', authenticate, (req, res) => {
     academic_info: academic_info?.is_student ? { is_student: true, career: academic_info.career, faculty: academic_info.faculty } : null,
   }
 
-  const updated = {
+  const updated = await upsertUser({
     ...user,
     onboarding_completed: true,
     profile,
     role_status: user.is_seller ? 'VENDEDOR' : user.is_internal ? 'INSTITUTIONAL_BUYER' : 'VISITOR',
     can_list_products: user.is_internal,
-  }
+  })
 
-  upsertUser(updated)
+  if (updated?.email) {
+    sendWelcomeEmail(updated.email, full_name || updated.email)
+  }
 
   res.json({
     status: 'success',
@@ -52,8 +42,8 @@ router.patch('/users/profile/onboarding', authenticate, (req, res) => {
   })
 })
 
-router.post('/users/seller/activate', authenticate, (req, res) => {
-  const user = getUserById(req.userId)
+router.post('/users/seller/activate', authenticate, validate(sellerActivationSchema), async (req, res) => {
+  const user = await getUserById(req.userId)
   if (!user) return res.status(404).json({ status: 'error', message: 'Usuario no encontrado' })
 
   if (!user.is_internal) {
@@ -65,8 +55,7 @@ router.post('/users/seller/activate', authenticate, (req, res) => {
   }
 
   const { accept_selling_policies, seller_type, store_name } = req.body
-
-  const updated = {
+  const updated = await upsertUser({
     ...user,
     is_seller: true,
     seller_info: {
@@ -80,9 +69,7 @@ router.post('/users/seller/activate', authenticate, (req, res) => {
       can_sell: true,
       seller_permissions: ['create_product', 'edit_product', 'manage_orders'],
     },
-  }
-
-  upsertUser(updated)
+  })
 
   res.json({
     status: 'success',
@@ -95,8 +82,8 @@ router.post('/users/seller/activate', authenticate, (req, res) => {
   })
 })
 
-router.get('/users/me', authenticate, (req, res) => {
-  const user = getUserById(req.userId)
+router.get('/users/me', authenticate, async (req, res) => {
+  const user = await getUserById(req.userId)
   if (!user) return res.status(404).json({ status: 'error', message: 'Usuario no encontrado' })
   res.json({ status: 'success', data: { user } })
 })
