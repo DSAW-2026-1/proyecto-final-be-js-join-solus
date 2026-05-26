@@ -1,0 +1,50 @@
+# Caddyfile — Configuración para producción
+# Reemplaza example.com con tu dominio real
+# docker run -p 80:80 -p 443:443 -v $PWD/Caddyfile:/etc/caddy/CADdyfile -v caddy_data:/data caddy:alpine
+
+example.com {
+    # Frontend estático
+    root * /usr/share/caddy/html
+    encode gzip
+
+    # API proxy
+    handle_path /api/* {
+        reverse_proxy backend:8080
+    }
+
+    # WebSocket (Socket.IO)
+    handle_path /socket.io/* {
+        reverse_proxy backend:8080 {
+            header_up Host {host}
+            header_up X-Real-IP {remote_host}
+        }
+    }
+
+    # Archivos subidos
+    handle_path /uploads/* {
+        reverse_proxy backend:8080
+    }
+
+    # SPA fallback — servir index.html para todas las rutas
+    try_files {path} /index.html
+
+    # Logs
+    log {
+        output file /var/log/caddy/access.log
+        format json
+    }
+
+    # Seguridad
+    header {
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy strict-origin-when-cross-origin
+        Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    }
+}
+
+# Redirección www a non-www
+www.example.com {
+    redir https://example.com{uri} permanent
+}

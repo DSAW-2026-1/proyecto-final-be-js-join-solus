@@ -1,0 +1,273 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum RoleStatus {
+  VISITOR
+  INSTITUTIONAL_BUYER
+  VENDEDOR
+  ADMIN
+}
+
+model User {
+  id                   String   @id @default(uuid())
+  email                String   @unique
+  password_hash        String?
+  is_internal          Boolean  @default(false)
+  is_admin             Boolean  @default(false)
+  is_seller            Boolean  @default(false)
+  onboarding_completed Boolean  @default(false)
+  role_status          String   @default("VISITOR")
+  profile              Json?
+  seller_info          Json?
+  permissions          Json?
+  created_at           DateTime @default(now()) @map("created_at")
+  updated_at           DateTime @updatedAt @map("updated_at")
+
+  products       Product[]
+  reviews        Review[]
+  messages_sent     Message[] @relation("sender")
+  messages_received Message[] @relation("receiver")
+  notifications  Notification[]
+  orders         Order[]
+  cart           Cart?
+  wishlist_items WishlistItem[]
+  reports       Report[]       @relation("reported_by_rel")
+  conversation_participants ConversationParticipant[]
+  blocks_initiated          Block[] @relation("blocker")
+  blocks_received           Block[] @relation("blocked")
+
+  @@index([created_at])
+  @@map("users")
+}
+
+model Product {
+  id          String   @id @default(uuid())
+  title       String
+  description String
+  price       Float
+  category    String
+  condition   String
+  stock       Int      @default(1)
+  images      Json?
+  status      String   @default("ACTIVO")
+  owner_id    String   @map("owner_id")
+  seller_info Json?
+  created_at  DateTime @default(now()) @map("created_at")
+  updated_at  DateTime @updatedAt @map("updated_at")
+
+  owner          User            @relation(fields: [owner_id], references: [id])
+  reviews        Review[]
+  cart_items     CartItem[]
+  wishlist_items WishlistItem[]
+  reports        Report[]
+
+  @@index([owner_id])
+  @@index([category])
+  @@index([status])
+  @@index([created_at])
+  @@map("products")
+}
+
+model Cart {
+  id         String   @id @default(uuid())
+  user_id    String   @unique @map("user_id")
+  created_at DateTime @default(now()) @map("created_at")
+  updated_at DateTime @updatedAt @map("updated_at")
+
+  user  User       @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  items CartItem[]
+
+  @@map("carts")
+}
+
+model CartItem {
+  id         String   @id @default(uuid())
+  cart_id    String   @map("cart_id")
+  product_id String   @map("product_id")
+  title      String
+  price      Float
+  category   String?
+  condition  String?
+  stock      Int?
+  image      String?
+  seller_name String?
+  quantity   Int      @default(1)
+  created_at DateTime @default(now()) @map("created_at")
+
+  cart    Cart     @relation(fields: [cart_id], references: [id], onDelete: Cascade)
+  product Product  @relation(fields: [product_id], references: [id])
+
+  @@map("cart_items")
+}
+
+model Order {
+  id               String   @id
+  transaction_id   String?  @map("transaction_id")
+  buyer_id         String   @map("buyer_id")
+  buyer_email      String?  @map("buyer_email")
+  buyer_name       String?  @map("buyer_name")
+  items            Json
+  total            Float
+  status           String   @default("CONFIRMADA")
+  payment_method   String?  @map("payment_method")
+  bank_name        String?  @map("bank_name")
+  shipping_address String?  @map("shipping_address")
+  created_at       DateTime @default(now()) @map("created_at")
+  updated_at       DateTime @updatedAt @map("updated_at")
+
+  buyer   User     @relation(fields: [buyer_id], references: [id])
+  reviews Review[]
+
+  @@index([buyer_id])
+  @@index([status])
+  @@index([created_at])
+  @@map("orders")
+}
+
+model Review {
+  id         String   @id @default(uuid())
+  user_id    String   @map("user_id")
+  user_name  String?  @map("user_name")
+  product_id String   @map("product_id")
+  order_id   String?  @map("order_id")
+  seller_id  String   @map("seller_id")
+  rating     Int
+  comment    String   @default("")
+  created_at DateTime @default(now()) @map("created_at")
+
+  user    User    @relation(fields: [user_id], references: [id])
+  product Product @relation(fields: [product_id], references: [id])
+  order   Order?  @relation(fields: [order_id], references: [id])
+
+  @@index([seller_id])
+  @@index([product_id])
+  @@index([user_id])
+  @@map("reviews")
+}
+
+model Conversation {
+  id              String   @id
+  product_id      String?  @map("product_id")
+  product_title   String?  @map("product_title")
+  last_message    String?  @map("last_message")
+  last_sender     String?  @map("last_sender")
+  last_message_at DateTime? @map("last_message_at")
+  created_at      DateTime @default(now()) @map("created_at")
+  updated_at      DateTime @updatedAt @map("updated_at")
+
+  participants ConversationParticipant[]
+  messages     Message[]
+
+  @@map("conversations")
+}
+
+model ConversationParticipant {
+  id              String       @id @default(uuid())
+  conversation_id String       @map("conversation_id")
+  user_id         String       @map("user_id")
+  created_at      DateTime     @default(now()) @map("created_at")
+
+  conversation Conversation @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([conversation_id, user_id])
+  @@map("conversation_participants")
+}
+
+model Message {
+  id              String   @id @default(uuid())
+  conversation_id String   @map("conversation_id")
+  sender_id       String   @map("sender_id")
+  receiver_id     String   @map("receiver_id")
+  product_id      String?  @map("product_id")
+  product_title   String?  @map("product_title")
+  text            String
+  read            Boolean  @default(false)
+  created_at      DateTime @default(now()) @map("created_at")
+
+  conversation Conversation @relation(fields: [conversation_id], references: [id])
+  sender       User         @relation("sender", fields: [sender_id], references: [id])
+  receiver     User         @relation("receiver", fields: [receiver_id], references: [id])
+
+  @@index([conversation_id])
+  @@index([receiver_id, read])
+  @@map("messages")
+}
+
+model WishlistItem {
+  id         String   @id @default(uuid())
+  user_id    String   @map("user_id")
+  product_id String   @map("product_id")
+  created_at DateTime @default(now()) @map("created_at")
+
+  user    User    @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [product_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, product_id])
+  @@index([user_id])
+  @@map("wishlist_items")
+}
+
+model Notification {
+  id         String   @id @default(uuid())
+  user_id    String   @map("user_id")
+  type       String?
+  title      String
+  message    String
+  link       String?
+  is_read    Boolean  @default(false) @map("is_read")
+  email_sent Boolean  @default(false) @map("email_sent")
+  created_at DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id, is_read])
+  @@map("notifications")
+}
+
+model Report {
+  id                String   @id @default(uuid())
+  product_id        String   @map("product_id")
+  reason            String
+  reported_by       String?  @map("reported_by")
+  reported_by_id    String?  @map("reported_by_id")
+  product_title     String?  @map("product_title")
+  seller_name       String?  @map("seller_name")
+  status            String   @default("PENDING")
+  resolution_reason String?  @map("resolution_reason")
+  resolved_at       DateTime? @map("resolved_at")
+  created_at        DateTime @default(now()) @map("created_at")
+  updated_at        DateTime @updatedAt @map("updated_at")
+
+  product         Product  @relation(fields: [product_id], references: [id])
+  reported_by_user User?   @relation("reported_by_rel", fields: [reported_by_id], references: [id])
+
+  @@index([status])
+  @@map("reports")
+}
+
+model Meta {
+  id           String @id @default("singleton")
+  order_counter Int   @default(0) @map("order_counter")
+
+  @@map("_meta")
+}
+
+model Block {
+  id         String   @id @default(uuid())
+  blocker_id String   @map("blocker_id")
+  blocked_id String   @map("blocked_id")
+  created_at DateTime @default(now()) @map("created_at")
+
+  blocker User @relation("blocker", fields: [blocker_id], references: [id], onDelete: Cascade)
+  blocked User @relation("blocked", fields: [blocked_id], references: [id], onDelete: Cascade)
+
+  @@unique([blocker_id, blocked_id])
+  @@map("blocks")
+}
