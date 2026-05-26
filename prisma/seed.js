@@ -1,7 +1,10 @@
 import crypto from 'crypto'
 import { PrismaClient } from '@prisma/client'
+import bcrypt from 'bcryptjs'
 
 const prisma = new PrismaClient()
+
+const DEFAULT_PASSWORD = 'password123'
 
 const DEMO_OWNERS = [
   { id: crypto.randomUUID(), email: 'camilomonva@unisabana.edu.co', name: 'Camilo Moncada', career: 'Ingeniería de Sistemas', faculty: 'Facultad de Ingeniería' },
@@ -34,9 +37,19 @@ const DEMO_PRODUCTS_DATA = [
 ]
 
 async function main() {
+  const password_hash = await bcrypt.hash(DEFAULT_PASSWORD, 12)
+
   const existingUsers = await prisma.user.count()
   if (existingUsers > 0) {
-    console.log('Database already has data, skipping seed.')
+    const usersWithoutHash = await prisma.user.findMany({ where: { password_hash: null } })
+    for (const u of usersWithoutHash) {
+      await prisma.user.update({ where: { id: u.id }, data: { password_hash } })
+    }
+    if (usersWithoutHash.length > 0) {
+      console.log(`Password hash added to ${usersWithoutHash.length} existing users`)
+    } else {
+      console.log('Database already has data and all users have password_hash, skipping seed.')
+    }
     return
   }
 
@@ -45,6 +58,7 @@ async function main() {
       data: {
         id: owner.id,
         email: owner.email,
+        password_hash,
         is_internal: true,
         is_seller: true,
         onboarding_completed: true,
@@ -62,6 +76,7 @@ async function main() {
   const adminUser = {
     id: crypto.randomUUID(),
     email: 'camilomova@unisabana.edu.co',
+    password_hash,
     is_internal: true,
     is_admin: true,
     is_seller: true,

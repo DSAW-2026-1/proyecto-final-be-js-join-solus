@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client'
 import { randomBytes } from 'crypto'
 import { beforeAll, afterAll } from 'vitest'
+import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 
 const prisma = new PrismaClient()
@@ -17,10 +18,11 @@ beforeAll(async () => {
   // Ensure admin user exists for tests
   const existing = await prisma.user.findUnique({ where: { email: TEST_ADMIN_EMAIL } })
   if (!existing) {
+    const testPassHash = bcrypt.hashSync('password123', 12)
     await prisma.user.create({
       data: {
         email: TEST_ADMIN_EMAIL,
-        password_hash: randomBytes(32).toString('hex'),
+        password_hash: testPassHash,
         is_internal: true,
         is_admin: true,
         is_seller: false,

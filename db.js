@@ -59,6 +59,10 @@ export async function getUserByEmail(email) {
   return pruneUser(user)
 }
 
+export async function getUserByEmailWithPassword(email) {
+  return prisma.user.findUnique({ where: { email } })
+}
+
 export async function getUserById(id) {
   if (!id) return null
   const user = await prisma.user.findUnique({ where: { id } })
@@ -76,6 +80,7 @@ export async function upsertUser(user) {
     profile: user.profile ?? null,
     seller_info: user.seller_info ?? null,
     permissions: user.permissions ?? null,
+    password_hash: user.password_hash ?? undefined,
   }
   const result = await prisma.user.upsert({
     where: { email: user.email },

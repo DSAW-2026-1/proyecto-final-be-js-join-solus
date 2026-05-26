@@ -3,6 +3,7 @@ import supertest from 'supertest'
 import express from 'express'
 import cors from 'cors'
 import { PrismaClient } from '@prisma/client'
+import bcrypt from 'bcryptjs'
 import { generateToken } from '../middleware/auth.js'
 import authRoutes from '../routes/auth.js'
 import productRoutes from '../routes/products.js'
@@ -31,13 +32,15 @@ let adminToken
 beforeAll(async () => {
   process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-secret'
 
+  const testPassHash = bcrypt.hashSync('password123', 12)
+
   testAdmin = await prisma.user.upsert({
     where: { email: 'admin.integration@unisabana.edu.co' },
-    update: {},
+    update: { password_hash: testPassHash },
     create: {
       id: 'admin-integration-id',
       email: 'admin.integration@unisabana.edu.co',
-      password_hash: 'x',
+      password_hash: testPassHash,
       is_internal: true,
       is_admin: true,
       onboarding_completed: true,
@@ -50,11 +53,11 @@ beforeAll(async () => {
 
   testUser = await prisma.user.upsert({
     where: { email: 'user.integration@unisabana.edu.co' },
-    update: {},
+    update: { password_hash: testPassHash },
     create: {
       id: 'user-integration-id',
       email: 'user.integration@unisabana.edu.co',
-      password_hash: 'x',
+      password_hash: testPassHash,
       is_internal: true,
       is_admin: false,
       onboarding_completed: true,
@@ -95,7 +98,7 @@ describe('API Integration Tests', () => {
       const uniqueEmail = `new-${Date.now()}@unisabana.edu.co`
       const res = await supertest(app)
         .post('/api/auth/login')
-        .send({ email: uniqueEmail })
+        .send({ email: uniqueEmail, password: 'password123' })
       expect(res.status).toBe(200)
       expect(res.body.data.token).toBeTruthy()
       expect(res.body.data.user.email).toBe(uniqueEmail)
@@ -104,7 +107,7 @@ describe('API Integration Tests', () => {
     it('logs in existing user', async () => {
       const res = await supertest(app)
         .post('/api/auth/login')
-        .send({ email: 'user.integration@unisabana.edu.co' })
+        .send({ email: 'user.integration@unisabana.edu.co', password: 'password123' })
       expect(res.status).toBe(200)
       expect(res.body.data.user.email).toBe('user.integration@unisabana.edu.co')
     }, 20000)
@@ -112,15 +115,22 @@ describe('API Integration Tests', () => {
     it('rejects missing email', async () => {
       const res = await supertest(app)
         .post('/api/auth/login')
-        .send({})
+        .send({ password: 'password123' })
       expect(res.status).toBe(400)
+    })
+
+    it('rejects wrong password', async () => {
+      const res = await supertest(app)
+        .post('/api/auth/login')
+        .send({ email: 'user.integration@unisabana.edu.co', password: 'wrongpass' })
+      expect(res.status).toBe(401)
     })
 
     it('promotes institutional emails to internal', async () => {
       const uniqueEmail = `student-${Date.now()}@unisabana.edu.co`
       const res = await supertest(app)
         .post('/api/auth/login')
-        .send({ email: uniqueEmail })
+        .send({ email: uniqueEmail, password: 'password123' })
       expect(res.status).toBe(200)
       expect(res.body.data.user.is_internal).toBe(true)
     }, 20000)
