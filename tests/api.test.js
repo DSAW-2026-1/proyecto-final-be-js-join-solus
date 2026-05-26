@@ -90,49 +90,37 @@ describe('API Integration Tests', () => {
     })
   })
 
-  describe('POST /api/auth/login-provider (Google OAuth)', () => {
-    it('creates user on first login with valid token', async () => {
-      const uniqueId = `new-id-${Date.now()}`
+  describe('POST /api/auth/login (email)', () => {
+    it('creates user on first login', async () => {
       const uniqueEmail = `new-${Date.now()}@unisabana.edu.co`
-      const fakeToken = `header.${btoa(JSON.stringify({ sub: uniqueId, email: uniqueEmail }))}.signature`
       const res = await supertest(app)
-        .post('/api/auth/login-provider')
-        .send({ id_token: fakeToken, provider: 'google' })
+        .post('/api/auth/login')
+        .send({ email: uniqueEmail })
       expect(res.status).toBe(200)
       expect(res.body.data.token).toBeTruthy()
       expect(res.body.data.user.email).toBe(uniqueEmail)
     }, 20000)
 
     it('logs in existing user', async () => {
-      const fakeToken = `header.${btoa(JSON.stringify({ sub: 'user-integration-id', email: 'user.integration@unisabana.edu.co' }))}.signature`
       const res = await supertest(app)
-        .post('/api/auth/login-provider')
-        .send({ id_token: fakeToken, provider: 'google' })
+        .post('/api/auth/login')
+        .send({ email: 'user.integration@unisabana.edu.co' })
       expect(res.status).toBe(200)
       expect(res.body.data.user.email).toBe('user.integration@unisabana.edu.co')
     }, 20000)
 
-    it('rejects missing id_token', async () => {
+    it('rejects missing email', async () => {
       const res = await supertest(app)
-        .post('/api/auth/login-provider')
-        .send({ provider: 'google' })
+        .post('/api/auth/login')
+        .send({})
       expect(res.status).toBe(400)
     })
 
-    it('rejects invalid token format', async () => {
-      const res = await supertest(app)
-        .post('/api/auth/login-provider')
-        .send({ id_token: 'not-a-jwt', provider: 'google' })
-      expect(res.status).toBe(401)
-    })
-
     it('promotes institutional emails to internal', async () => {
-      const uniqueId = `int-${Date.now()}`
       const uniqueEmail = `student-${Date.now()}@unisabana.edu.co`
-      const fakeToken = `header.${btoa(JSON.stringify({ sub: uniqueId, email: uniqueEmail }))}.signature`
       const res = await supertest(app)
-        .post('/api/auth/login-provider')
-        .send({ id_token: fakeToken, provider: 'google' })
+        .post('/api/auth/login')
+        .send({ email: uniqueEmail })
       expect(res.status).toBe(200)
       expect(res.body.data.user.is_internal).toBe(true)
     }, 20000)
