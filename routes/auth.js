@@ -81,7 +81,8 @@ router.post('/auth/login-provider', async (req, res) => {
     } else {
       return res.status(400).json({ status: 'error', message: `Proveedor no soportado: ${provider}` })
     }
-  } catch {
+  } catch (err) {
+    console.error('[AUTH] Error verificando token:', err.message)
     return res.status(401).json({ status: 'error', message: 'Token invalido o expirado' })
   }
   const email = payload.email
