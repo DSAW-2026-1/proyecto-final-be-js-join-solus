@@ -55,7 +55,7 @@ export const onboardingSchema = z.object({
     is_student: z.boolean(),
     career: z.string().optional(),
     faculty: z.string().optional(),
-  }).optional(),
+  }).nullish(),
   bio: z.string().max(300, 'La biografía no puede exceder 300 caracteres').optional(),
 })
 
