@@ -21,12 +21,18 @@ if (process.env.CLOUDINARY_CLOUD_NAME) {
   })
   upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 } })
 } else {
-  const { join, dirname } = await import('path')
-  const { fileURLToPath } = await import('url')
+  const { join } = await import('path')
   const { mkdirSync, existsSync } = await import('fs')
-  const __dirname = dirname(fileURLToPath(import.meta.url))
-  const UPLOADS_DIR = join(__dirname, '..', 'uploads')
-  if (!existsSync(UPLOADS_DIR)) mkdirSync(UPLOADS_DIR, { recursive: true })
+  const { tmpdir } = await import('os')
+  let UPLOADS_DIR = process.env.VERCEL
+    ? join(tmpdir(), 'uploads')
+    : join(new URL('..', import.meta.url).pathname, 'uploads')
+  try {
+    if (!existsSync(UPLOADS_DIR)) mkdirSync(UPLOADS_DIR, { recursive: true })
+  } catch {
+    UPLOADS_DIR = join(tmpdir(), 'marketplace-uploads')
+    if (!existsSync(UPLOADS_DIR)) mkdirSync(UPLOADS_DIR, { recursive: true })
+  }
 
   const storage = multer.diskStorage({
     destination: (_req, _file, cb) => cb(null, UPLOADS_DIR),
@@ -44,59 +50,64 @@ if (process.env.CLOUDINARY_CLOUD_NAME) {
 const router = Router()
 
 router.post('/products', authenticate, upload.array('images', 6), validate(productSchema), async (req, res) => {
-  const user = await getUserById(req.userId)
-  if (!user) return res.status(404).json({ status: 'error', message: 'Usuario no encontrado' })
-  if (!user.is_seller) {
-    return res.status(403).json({ status: 'error', message: 'Debes activar tu cuenta de vendedor para publicar productos' })
+  try {
+    const user = await getUserById(req.userId)
+    if (!user) return res.status(404).json({ status: 'error', message: 'Usuario no encontrado' })
+    if (!user.is_seller) {
+      return res.status(403).json({ status: 'error', message: 'Debes activar tu cuenta de vendedor para publicar productos' })
+    }
+
+    const { title, description, price, category, condition, stock } = req.body
+    if (!title || !description || !price || !category || !condition) {
+      return res.status(400).json({ status: 'error', message: 'Todos los campos obligatorios deben estar diligenciados: título, descripción, precio, categoría, estado' })
+    }
+
+    let images = []
+    if (req.body.existing_images) {
+      try { images = JSON.parse(req.body.existing_images) } catch { images = [] }
+    }
+    const newImages = (req.files || []).map((f) =>
+      process.env.CLOUDINARY_CLOUD_NAME ? f.path : `/uploads/${f.filename}`
+    )
+    images = [...images, ...newImages]
+
+    const product = {
+      id: crypto.randomUUID(),
+      title: String(title).trim(),
+      description: String(description).trim(),
+      price: Number(price),
+      category,
+      condition,
+      stock: Math.max(1, Number(stock) || 1),
+      images,
+      status: 'ACTIVO',
+      created_at: new Date().toISOString(),
+      owner_id: user.id,
+      owner: { id: user.id, name: user.profile?.full_name || user.email, email: user.email },
+      seller_info: user.seller_info ? { store_name: user.seller_info.store_name, reputation: user.seller_info.reputation } : null,
+    }
+
+    if (Number.isNaN(product.price) || product.price <= 0) {
+      return res.status(400).json({ status: 'error', message: 'El precio debe ser un número positivo' })
+    }
+
+    await addProduct(product)
+
+    res.status(201).json({
+      status: 'success',
+      message: 'Producto publicado exitosamente',
+      data: {
+        product_id: product.id,
+        created_at: product.created_at,
+        status: product.status,
+        images: product.images,
+        owner: product.owner,
+      },
+    })
+  } catch (err) {
+    console.error('[PRODUCTS ROUTE] Error creating product:', err)
+    res.status(500).json({ status: 'error', message: 'Error interno del servidor' })
   }
-
-  const { title, description, price, category, condition, stock } = req.body
-  if (!title || !description || !price || !category || !condition) {
-    return res.status(400).json({ status: 'error', message: 'Todos los campos obligatorios deben estar diligenciados: título, descripción, precio, categoría, estado' })
-  }
-
-  let images = []
-  if (req.body.existing_images) {
-    try { images = JSON.parse(req.body.existing_images) } catch { images = [] }
-  }
-  const newImages = (req.files || []).map((f) =>
-    process.env.CLOUDINARY_CLOUD_NAME ? f.path : `/uploads/${f.filename}`
-  )
-  images = [...images, ...newImages]
-
-  const product = {
-    id: crypto.randomUUID(),
-    title: String(title).trim(),
-    description: String(description).trim(),
-    price: Number(price),
-    category,
-    condition,
-    stock: Math.max(1, Number(stock) || 1),
-    images,
-    status: 'ACTIVO',
-    created_at: new Date().toISOString(),
-    owner_id: user.id,
-    owner: { id: user.id, name: user.profile?.full_name || user.email, email: user.email },
-    seller_info: user.seller_info ? { store_name: user.seller_info.store_name, reputation: user.seller_info.reputation } : null,
-  }
-
-  if (Number.isNaN(product.price) || product.price <= 0) {
-    return res.status(400).json({ status: 'error', message: 'El precio debe ser un número positivo' })
-  }
-
-  await addProduct(product)
-
-  res.status(201).json({
-    status: 'success',
-    message: 'Producto publicado exitosamente',
-    data: {
-      product_id: product.id,
-      created_at: product.created_at,
-      status: product.status,
-      images: product.images,
-      owner: product.owner,
-    },
-  })
 })
 
 router.get('/products/search', async (req, res) => {
