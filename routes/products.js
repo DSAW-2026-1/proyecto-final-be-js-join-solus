@@ -43,7 +43,7 @@ if (process.env.CLOUDINARY_CLOUD_NAME) {
 
 const router = Router()
 
-router.post('/products', authenticate, validate(productSchema), upload.array('images', 6), async (req, res) => {
+router.post('/products', authenticate, upload.array('images', 6), validate(productSchema), async (req, res) => {
   const user = await getUserById(req.userId)
   if (!user) return res.status(404).json({ status: 'error', message: 'Usuario no encontrado' })
   if (!user.is_seller) {

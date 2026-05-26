@@ -61,7 +61,7 @@ export const onboardingSchema = z.object({
 
 export const sellerActivationSchema = z.object({
   accept_selling_policies: z.literal(true, { errorMap: () => ({ message: 'Debes aceptar las políticas de venta' }) }),
-  seller_type: z.enum(['individual', 'business'], { errorMap: () => ({ message: 'Tipo de vendedor inválido' }) }),
+  seller_type: z.enum(['estudiante', 'egresado', 'docente', 'administrativo', 'individual', 'business'], { errorMap: () => ({ message: 'Tipo de vendedor inválido' }) }),
   store_name: z.string().min(3, 'El nombre de la tienda debe tener al menos 3 caracteres').max(60),
 })
 
@@ -81,6 +81,7 @@ export function validate(schema) {
     const result = schema.safeParse(req.body)
     if (!result.success) {
       const errors = result.error.issues.map((i) => ({ field: i.path.join('.'), message: i.message }))
+      console.error('[VALIDATION ERROR]', req.path, JSON.stringify(errors))
       return res.status(400).json({ status: 'error', message: 'Datos inválidos', errors })
     }
     req.body = result.data
