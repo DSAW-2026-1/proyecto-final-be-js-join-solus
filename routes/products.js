@@ -59,7 +59,9 @@ router.post('/products', authenticate, upload.array('images', 6), validate(produ
   if (req.body.existing_images) {
     try { images = JSON.parse(req.body.existing_images) } catch { images = [] }
   }
-  const newImages = (req.files || []).map((f) => f.path || `/uploads/${f.filename}`)
+  const newImages = (req.files || []).map((f) =>
+    process.env.CLOUDINARY_CLOUD_NAME ? f.path : `/uploads/${f.filename}`
+  )
   images = [...images, ...newImages]
 
   const product = {
@@ -133,7 +135,9 @@ async function handlePatch(req, res) {
     try { allImages = JSON.parse(existing_images) } catch { allImages = [] }
   }
 
-  const newImages = (req.files || []).map((f) => f.path || `/uploads/${f.filename}`)
+  const newImages = (req.files || []).map((f) =>
+    process.env.CLOUDINARY_CLOUD_NAME ? f.path : `/uploads/${f.filename}`
+  )
   if (newImages.length > 0) {
     allImages = [...(allImages || []), ...newImages]
   }

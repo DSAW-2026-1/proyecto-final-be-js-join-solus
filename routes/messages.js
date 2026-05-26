@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { getUserById, sendMessage, getUserConversations, getConversationMessages, getUserMessages, markMessageRead, getUnreadCount, createNotification } from '../db.js'
+import { getUserById, sendMessage, getUserConversations, getConversationMessages, getUserMessages, markMessageRead, getUnreadCount, getMessagesWithUser, createNotification, blockUser, unblockUser, isBlocked } from '../db.js'
 import { authenticate } from '../middleware/auth.js'
 import { messageSchema, validate } from '../validators/index.js'
 
@@ -12,6 +12,11 @@ router.post('/messages', authenticate, validate(messageSchema), async (req, res)
 
   if (!receiverId || !messageContent) {
     return res.status(400).json({ status: 'error', message: 'receiver_id y content son requeridos' })
+  }
+
+  const blocked = await isBlocked(req.userId, receiverId)
+  if (blocked) {
+    return res.status(403).json({ status: 'error', message: 'No puedes enviar mensajes a este usuario' })
   }
 
   const user = await getUserById(req.userId)
@@ -53,6 +58,11 @@ router.get('/conversations/:id/messages', authenticate, async (req, res) => {
   res.json({ status: 'success', data: { conversation_id: req.params.id, messages } })
 })
 
+router.get('/messages/with/:userId', authenticate, async (req, res) => {
+  const messages = await getMessagesWithUser(req.userId, req.params.userId)
+  res.json({ status: 'success', data: { messages } })
+})
+
 router.get('/messages', authenticate, async (req, res) => {
   const messages = await getUserMessages(req.userId)
   res.json({ status: 'success', data: messages })
@@ -66,6 +76,25 @@ router.get('/messages/unread', authenticate, async (req, res) => {
 router.patch('/messages/:id/read', authenticate, async (req, res) => {
   await markMessageRead(req.params.id)
   res.json({ status: 'success', message: 'Mensaje marcado como leído' })
+})
+
+// Block / unblock
+router.post('/messages/block/:userId', authenticate, async (req, res) => {
+  if (req.userId === req.params.userId) {
+    return res.status(400).json({ status: 'error', message: 'No puedes bloquearte a ti mismo' })
+  }
+  await blockUser(req.userId, req.params.userId)
+  res.json({ status: 'success', message: 'Usuario bloqueado' })
+})
+
+router.post('/messages/unblock/:userId', authenticate, async (req, res) => {
+  await unblockUser(req.userId, req.params.userId)
+  res.json({ status: 'success', message: 'Usuario desbloqueado' })
+})
+
+router.get('/messages/block-status/:userId', authenticate, async (req, res) => {
+  const blocked = await isBlocked(req.userId, req.params.userId)
+  res.json({ status: 'success', data: { blocked } })
 })
 
 export default router

@@ -1,0 +1,7 @@
+{"timestamp":"2026-05-26T00:22:27.668Z","action":"ADMIN_STATS","userId":"admin-integration-id","userEmail":"admin.integration@unisabana.edu.co","details":{"statusCode":200,"path":"/admin/stats"},"ip":"::ffff:127.0.0.1"}
+{"timestamp":"2026-05-26T00:36:10.333Z","action":"ADMIN_STATS","userId":"admin-integration-id","userEmail":"admin.integration@unisabana.edu.co","details":{"statusCode":200,"path":"/admin/stats"},"ip":"::ffff:127.0.0.1"}
+{"timestamp":"2026-05-26T00:36:55.303Z","action":"ADMIN_STATS","userId":"admin-integration-id","userEmail":"admin.integration@unisabana.edu.co","details":{"statusCode":200,"path":"/admin/stats"},"ip":"::ffff:127.0.0.1"}
+{"timestamp":"2026-05-26T00:43:14.047Z","action":"ADMIN_STATS","userId":"admin-integration-id","userEmail":"admin.integration@unisabana.edu.co","details":{"statusCode":200,"path":"/admin/stats"},"ip":"::ffff:127.0.0.1"}
+{"timestamp":"2026-05-26T01:17:34.289Z","action":"ADMIN_STATS","userId":"admin-integration-id","userEmail":"admin.integration@unisabana.edu.co","details":{"statusCode":200,"path":"/admin/stats"},"ip":"::ffff:127.0.0.1"}
+{"timestamp":"2026-05-26T01:23:06.487Z","action":"ADMIN_STATS","userId":"admin-integration-id","userEmail":"admin.integration@unisabana.edu.co","details":{"statusCode":200,"path":"/admin/stats"},"ip":"::ffff:127.0.0.1"}
+{"timestamp":"2026-05-26T02:12:01.443Z","action":"ADMIN_STATS","userId":"admin-integration-id","userEmail":"admin.integration@unisabana.edu.co","details":{"statusCode":200,"path":"/admin/stats"},"ip":"::ffff:127.0.0.1"}

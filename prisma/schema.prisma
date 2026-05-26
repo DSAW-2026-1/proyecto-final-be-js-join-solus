@@ -39,6 +39,8 @@ model User {
   wishlist_items WishlistItem[]
   reports       Report[]       @relation("reported_by_rel")
   conversation_participants ConversationParticipant[]
+  blocks_initiated          Block[] @relation("blocker")
+  blocks_received           Block[] @relation("blocked")
 
   @@index([created_at])
   @@map("users")
@@ -255,4 +257,17 @@ model Meta {
   order_counter Int   @default(0) @map("order_counter")
 
   @@map("_meta")
+}
+
+model Block {
+  id         String   @id @default(uuid())
+  blocker_id String   @map("blocker_id")
+  blocked_id String   @map("blocked_id")
+  created_at DateTime @default(now()) @map("created_at")
+
+  blocker User @relation("blocker", fields: [blocker_id], references: [id], onDelete: Cascade)
+  blocked User @relation("blocked", fields: [blocked_id], references: [id], onDelete: Cascade)
+
+  @@unique([blocker_id, blocked_id])
+  @@map("blocks")
 }

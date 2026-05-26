@@ -641,7 +641,63 @@ export async function markMessageRead(messageId) {
 }
 
 export async function getUnreadCount(userId) {
-  return prisma.message.count({ where: { receiver_id: userId, read: false } })
+  try {
+    const count = await prisma.message.count({
+      where: { receiver_id: userId, read: false },
+    })
+    return count
+  } catch {
+    return 0
+  }
+}
+
+export async function getMessagesWithUser(myId, otherUserId) {
+  const messages = await prisma.message.findMany({
+    where: {
+      OR: [
+        { sender_id: myId, receiver_id: otherUserId },
+        { sender_id: otherUserId, receiver_id: myId },
+      ],
+    },
+    orderBy: { created_at: 'asc' },
+  })
+  return messages.map((m) => ({
+    id: m.id,
+    conversation_id: m.conversation_id,
+    sender_id: m.sender_id,
+    text: m.text,
+    product_title: m.product_title,
+    product_id: m.product_id,
+    timestamp: m.created_at?.toISOString?.() || m.created_at,
+  }))
+}
+
+export async function blockUser(blockerId, blockedId) {
+  await prisma.block.upsert({
+    where: { blocker_id_blocked_id: { blocker_id: blockerId, blocked_id: blockedId } },
+    update: {},
+    create: { blocker_id: blockerId, blocked_id: blockedId },
+  })
+}
+
+export async function unblockUser(blockerId, blockedId) {
+  try {
+    await prisma.block.delete({
+      where: { blocker_id_blocked_id: { blocker_id: blockerId, blocked_id: blockedId } },
+    })
+  } catch {}
+}
+
+export async function isBlocked(userId, otherUserId) {
+  const block = await prisma.block.findFirst({
+    where: {
+      OR: [
+        { blocker_id: userId, blocked_id: otherUserId },
+        { blocker_id: otherUserId, blocked_id: userId },
+      ],
+    },
+  })
+  return !!block
 }
 
 export async function getWishlist(userId) {
